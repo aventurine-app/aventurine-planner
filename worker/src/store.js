@@ -121,7 +121,7 @@ export async function hasVault(db, email) {
 
 export async function getVault(db, email) {
     return db.prepare(
-        'SELECT id, wrapped_key, key_version, seq, last_seen_at FROM vaults WHERE email = ?',
+        'SELECT id, wrapped_key, key_version, seq, last_seen_at, warned_at FROM vaults WHERE email = ?',
     ).bind(email).first();
 }
 
@@ -222,11 +222,12 @@ export async function countVaults(db) {
 
 /**
  * Vaults not used since `before`, each with its owner's subscriptions, for
- * the retention check. A vault with no Paddle customer has no subscriptions.
+ * the retention check and its warning. A vault with no Paddle customer has
+ * no subscriptions.
  */
 export async function idleVaults(db, before) {
     const { results } = await db.prepare(
-        `SELECT v.email, v.id, v.last_seen_at, s.status, s.updated_at
+        `SELECT v.email, v.id, v.last_seen_at, v.warned_at, s.status, s.updated_at
          FROM vaults v
          LEFT JOIN customers c ON c.email = v.email
          LEFT JOIN subscriptions s ON s.customer_id = c.id
@@ -234,10 +235,17 @@ export async function idleVaults(db, before) {
     ).bind(before).all();
     const byEmail = new Map();
     for (const r of results) {
-        if (!byEmail.has(r.email)) byEmail.set(r.email, { email: r.email, id: r.id, lastSeenAt: r.last_seen_at, subscriptions: [] });
+        if (!byEmail.has(r.email)) {
+            byEmail.set(r.email, { email: r.email, id: r.id, lastSeenAt: r.last_seen_at, warnedAt: r.warned_at, subscriptions: [] });
+        }
         if (r.status != null) byEmail.get(r.email).subscriptions.push({ status: r.status, updated_at: r.updated_at });
     }
     return [...byEmail.values()];
+}
+
+/** Note that the owner of vault `vaultId` was warned it will be erased. */
+export async function markVaultWarned(db, { email, vaultId, at }) {
+    await db.prepare('UPDATE vaults SET warned_at = ? WHERE email = ? AND id = ?').bind(at, email, vaultId).run();
 }
 
 /** Drop expired links and sessions. Run on a schedule so the tables stay small. */

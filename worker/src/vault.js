@@ -26,7 +26,9 @@
 //
 // Retention: a vault is kept while its owner has access, and for 60 days after
 // they lose it, so someone who resubscribes finds everything as they left it.
-// After that the daily job erases it (purgeLapsedVaults). In those 60 days the
+// On day 45 the daily job emails them that it will be erased
+// (warnLapsedVaults), and after day 60 it erases it (purgeLapsedVaults), but
+// never sooner than 14 days after that email. In those 60 days the
 // owner may still sign in and read it (the GETs), to export their plans from
 // the export page, but not change it; reading does not restart the clock.
 
@@ -35,7 +37,7 @@ import { currentSession } from './auth.js';
 import { randomToken } from './crypto.js';
 import { HttpError, json, readJsonBody, requireSameOrigin } from './http.js';
 import {
-    countVaults, createVault, deleteVault, getVault, getVaultItem, idleVaults, replaceVaultKey, touchVault,
+    countVaults, createVault, deleteVault, getVault, getVaultItem, idleVaults, markVaultWarned, replaceVaultKey, touchVault,
     vaultItemsSince, vaultUsage, writeVaultItem,
 } from './store.js';
 
@@ -43,6 +45,14 @@ const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
 
 export const RETENTION_MS = 60 * DAY;
+// The warning goes out this long before the vault is due to be erased...
+export const WARN_BEFORE_MS = 15 * DAY;
+// ...and the vault is never erased sooner than this after it, so a late
+// warning (a missed run, an email outage) still gives this much notice.
+export const MIN_NOTICE_MS = 14 * DAY;
+// A vault whose warning could never be sent is erased this long after it was
+// due anyway, so a bouncing address does not keep it forever.
+const UNWARNED_GRACE_MS = 30 * DAY;
 const TOUCH_EVERY_MS = HOUR;
 
 // Generous for what the app stores (at most 15 plans, a few KB to tens of KB
@@ -55,8 +65,7 @@ export const LIMITS = {
     page: 25,                    // items per pull
 };
 
-// If one daily run would erase more vaults than this, something is wrong (a
-// webhook outage, a bad deploy), so it erases none and says so in the logs.
+// See implausible(), below.
 const PURGE_SANITY = { atLeast: 20, fraction: 0.1 };
 
 const ITEM_ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -93,10 +102,21 @@ async function owner(deps, request, { readOnly }) {
     return { email: session.email, access, subscriptions: session.subscriptions };
 }
 
-/** When the daily job may erase a vault whose owner has no access: 60 days after its last use or subscription change. */
-function keptUntil(vault, subscriptions) {
-    return Math.max(vault.last_seen_at, ...subscriptions.map((s) => s.updated_at)) + RETENTION_MS;
+/**
+ * Where a vault whose owner has no access stands: when the lapse began (its
+ * last use or subscription change), whether its owner has been warned in
+ * this lapse, and when it may be erased: 60 days on, or 14 days after the
+ * warning if that is later.
+ */
+export function retention({ lastSeenAt, warnedAt, subscriptions }) {
+    const lapsedAt = Math.max(lastSeenAt, ...subscriptions.map((s) => s.updated_at));
+    const warned = warnedAt != null && warnedAt >= lapsedAt;
+    const due = lapsedAt + RETENTION_MS;
+    return { lapsedAt, warned, erasesAt: warned ? Math.max(due, warnedAt + MIN_NOTICE_MS) : due };
 }
+
+const keptUntil = (vault, subscriptions) =>
+    retention({ lastSeenAt: vault.last_seen_at, warnedAt: vault.warned_at, subscriptions }).erasesAt;
 
 /** The vault, or an HttpError: 404 if there is none, 409 if it is not `vaultId`. */
 async function requireVault(db, email, vaultId) {
@@ -213,29 +233,68 @@ export async function handleVault(request, deps, path) {
 
 // ── Retention ───────────────────────────────────────────────────────────────
 
+/** The vaults of people without access that have been idle since `before`, with where each stands. */
+async function lapsedVaults(db, { before, complimentary }) {
+    return (await idleVaults(db, before))
+        .filter((v) => !hasAccess({ email: v.email, subscriptions: v.subscriptions, complimentary }))
+        .map((v) => ({ ...v, ...retention(v) }));
+}
+
+/**
+ * If one daily run would act on more vaults than this, something is wrong (a
+ * webhook outage, a bad deploy) rather than that many real cancellations, so
+ * it acts on none and says so in the logs.
+ */
+async function implausible(db, count, what, logger) {
+    if (!count) return false;
+    const total = await countVaults(db);
+    if (count <= Math.max(PURGE_SANITY.atLeast, total * PURGE_SANITY.fraction)) return false;
+    logger.error(`[vault] refusing to ${what} ${count} of ${total} vaults in one run; check the subscriptions data`);
+    return true;
+}
+
+/**
+ * Email everyone whose vault is due to be erased within WARN_BEFORE_MS and
+ * who has not been warned in this lapse. `send({ to, deleteOn })` sends one
+ * warning and throws if it could not; a failed one is tried again the next
+ * day. Returns how many were sent.
+ */
+export async function warnLapsedVaults(db, { now, complimentary, send, logger = console }) {
+    const due = (await lapsedVaults(db, { before: now - (RETENTION_MS - WARN_BEFORE_MS), complimentary }))
+        .filter((v) => !v.warned && v.erasesAt - WARN_BEFORE_MS <= now);
+    if (await implausible(db, due.length, 'warn', logger)) return 0;
+    let sent = 0;
+    for (const v of due) {
+        const deleteOn = Math.max(v.erasesAt, now + MIN_NOTICE_MS);
+        try {
+            await send({ to: v.email, deleteOn });
+        } catch (e) {
+            logger.error(`[vault] a deletion warning could not be sent; trying again tomorrow: ${e.message}`);
+            continue;
+        }
+        await markVaultWarned(db, { email: v.email, vaultId: v.id, at: now });
+        sent++;
+    }
+    if (sent) logger.log(`[vault] warned ${sent} account(s) that their plans will be deleted`);
+    return sent;
+}
+
 /**
  * Erase the vaults of people who lost access more than RETENTION_MS ago. A
  * vault is erased only when its owner has no access now, it has not been used
  * in that time, and no change to their subscriptions happened in that time
- * either (a cancellation is the last change). Returns how many were erased.
+ * either (a cancellation is the last change); and only once its owner was
+ * warned at least MIN_NOTICE_MS before (or the warning has failed for
+ * UNWARNED_GRACE_MS). Returns how many were erased.
  */
 export async function purgeLapsedVaults(db, { now, complimentary, logger = console }) {
-    const cutoff = now - RETENTION_MS;
-    const lapsed = (await idleVaults(db, cutoff)).filter((v) => {
-        if (hasAccess({ email: v.email, subscriptions: v.subscriptions, complimentary })) return false;
-        return Math.max(v.lastSeenAt, ...v.subscriptions.map((s) => s.updated_at)) < cutoff;
-    });
-    if (!lapsed.length) return 0;
-
-    const total = await countVaults(db);
-    if (lapsed.length > Math.max(PURGE_SANITY.atLeast, total * PURGE_SANITY.fraction)) {
-        logger.error(`[vault] refusing to erase ${lapsed.length} of ${total} vaults in one run; check the subscriptions data`);
-        return 0;
-    }
+    const lapsed = (await lapsedVaults(db, { before: now - RETENTION_MS, complimentary }))
+        .filter((v) => (v.warned ? v.erasesAt <= now : v.erasesAt + UNWARNED_GRACE_MS <= now));
+    if (await implausible(db, lapsed.length, 'erase', logger)) return 0;
     let erased = 0;
     for (const v of lapsed) {
         if (await deleteVault(db, { email: v.email, vaultId: v.id })) erased++;
     }
-    logger.log(`[vault] erased ${erased} vault(s) past the ${RETENTION_MS / DAY}-day retention period`);
+    if (erased) logger.log(`[vault] erased ${erased} vault(s) past the ${RETENTION_MS / DAY}-day retention period`);
     return erased;
 }

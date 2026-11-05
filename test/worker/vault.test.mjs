@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { LIMITS, RETENTION_MS } from '../../worker/src/vault.js';
+import { LIMITS, MIN_NOTICE_MS, RETENTION_MS } from '../../worker/src/vault.js';
 import { createSite, customerEvent, OWNER, subscriptionEvent } from './harness.mjs';
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -88,9 +88,15 @@ test('without access, the vault says when it will be erased, and reading it does
 
     // Exporting every few weeks does not keep the vault alive.
     for (let i = 0; i < 3; i++) {
-        site.advance(20 * DAY);
-        await pull(site, cookie, vault);
+        site.advance(15 * DAY);
+        const fresh = await site.signIn('alice@example.com');
+        assert.equal((await pull(site, fresh, vault)).status, 200);
+        await site.cron();
     }
+    site.advance(13 * DAY); // 60 days after cancelling; warned on day 47, so erasing waits until day 61
+    await site.cron();
+    assert.equal(site.db.sqlite.prepare('SELECT COUNT(*) AS n FROM vaults').get().n, 1);
+    site.advance(DAY);
     await site.cron();
     assert.equal(site.db.sqlite.prepare('SELECT COUNT(*) AS n FROM vaults').get().n, 0);
 });
@@ -338,26 +344,138 @@ test('a customer\'s vault follows them to a new email', async (t) => {
 
 // ── Retention ──────────────────────────────────────────────────────────────
 
-test('a lapsed vault is kept for 60 days, then erased', async (t) => {
+const vaultCount = (site) => site.db.sqlite.prepare('SELECT COUNT(*) AS n FROM vaults').get().n;
+const warnings = (site) => site.sent.emails.filter((m) => m.subject.includes('will be deleted'));
+
+/** Keep the daily job's log lines out of the test output. */
+function quiet(t, ...names) {
+    for (const name of names) {
+        const original = console[name];
+        console[name] = () => {};
+        t.after(() => { console[name] = original; });
+    }
+}
+
+test('a lapsed vault is kept for 60 days, its owner warned on day 45, then erased', async (t) => {
     const site = createSite();
     t.after(site.restore);
+    quiet(t, 'log');
     assert.equal(RETENTION_MS, 60 * DAY);
     const { cookie, vault } = await withVault(site);
     await put(site, cookie, vault, 'p_1', 0, sealed('plan'));
-    const log = console.log;
-    console.log = () => {};
-    t.after(() => { console.log = log; });
 
     site.advance(5 * DAY);
     await cancel(site);
-    site.advance(59 * DAY);
+    const cancelledAt = site.clock.now;
+    site.advance(44 * DAY);
     await site.cron();
-    assert.equal(site.db.sqlite.prepare('SELECT COUNT(*) AS n FROM vaults').get().n, 1, 'kept within 60 days of cancelling');
+    assert.equal(warnings(site).length, 0, 'no warning before day 45');
 
-    site.advance(2 * DAY);
+    site.advance(DAY);
     await site.cron();
-    assert.equal(site.db.sqlite.prepare('SELECT COUNT(*) AS n FROM vaults').get().n, 0);
+    assert.equal(warnings(site).length, 1);
+    const mail = warnings(site)[0];
+    assert.deepEqual(mail.to, ['alice@example.com']);
+    const day = new Date(cancelledAt + RETENTION_MS).toLocaleDateString('en-US', { dateStyle: 'long', timeZone: 'UTC' });
+    assert.ok(mail.subject.endsWith(day), mail.subject);
+    assert.ok(mail.text.includes('/auth/login') && mail.text.includes('#pricing') && mail.text.includes('recovery key'));
+    assert.ok(!mail.text.includes('plan-') && !mail.html.includes('v1.'), 'nothing of the vault is in the email');
+
+    site.advance(DAY);
+    await site.cron();
+    assert.equal(warnings(site).length, 1, 'one warning, not one a day');
+
+    site.advance(13 * DAY);
+    await site.cron();
+    assert.equal(vaultCount(site), 1, 'kept until day 60');
+    site.advance(DAY);
+    await site.cron();
+    assert.equal(vaultCount(site), 0);
     assert.equal(site.db.sqlite.prepare('SELECT COUNT(*) AS n FROM vault_items').get().n, 0);
+});
+
+test('a late warning still gives 14 days before anything is erased, and the vault says so', async (t) => {
+    const site = createSite();
+    t.after(site.restore);
+    quiet(t, 'log');
+    assert.equal(MIN_NOTICE_MS, 14 * DAY);
+    await withVault(site);
+    site.advance(DAY);
+    await cancel(site);
+    site.advance(58 * DAY); // the daily job did not run in between
+    await site.cron();
+    assert.equal(warnings(site).length, 1);
+    const warnedAt = site.clock.now;
+    const r = await send(site, await site.signIn('alice@example.com'), 'GET', '/api/vault');
+    assert.equal(r.body.keptUntil, warnedAt + MIN_NOTICE_MS);
+
+    site.advance(13 * DAY);
+    await site.cron();
+    assert.equal(vaultCount(site), 1, 'not erased on day 60, so soon after the warning');
+    site.advance(DAY);
+    await site.cron();
+    assert.equal(vaultCount(site), 0);
+});
+
+test('a warning that could not be sent is tried again the next day', async (t) => {
+    const site = createSite();
+    t.after(site.restore);
+    quiet(t, 'log', 'error');
+    await withVault(site);
+    site.advance(DAY);
+    await cancel(site);
+    site.advance(45 * DAY);
+    site.behavior.resendStatus = 500;
+    await site.cron();
+    site.behavior.resendStatus = 200;
+    site.advance(DAY);
+    await site.cron();
+    assert.equal(warnings(site).length, 2, 'the failed attempt, then the one that went');
+    site.advance(DAY);
+    await site.cron();
+    assert.equal(warnings(site).length, 2);
+});
+
+test('a vault whose warning can never be sent is still erased in the end', async (t) => {
+    const site = createSite();
+    t.after(site.restore);
+    quiet(t, 'log', 'error');
+    await withVault(site);
+    site.advance(DAY);
+    await cancel(site);
+    site.behavior.resendStatus = 500;
+    site.advance(89 * DAY);
+    await site.cron();
+    assert.equal(vaultCount(site), 1, 'kept past day 60 while it could not be warned');
+    site.advance(DAY);
+    await site.cron();
+    assert.equal(vaultCount(site), 0);
+});
+
+test('resubscribing and lapsing again brings a new warning', async (t) => {
+    const site = createSite();
+    t.after(site.restore);
+    quiet(t, 'log');
+    await withVault(site);
+    site.advance(DAY);
+    await cancel(site);
+    site.advance(45 * DAY);
+    await site.cron();
+    assert.equal(warnings(site).length, 1);
+
+    site.advance(DAY);
+    await site.webhook(subscriptionEvent({ subscriptionId: 'sub_01again', customerId: 'ctm_01alice', at: site.iso() }));
+    site.advance(30 * DAY);
+    await site.webhook(subscriptionEvent({
+        subscriptionId: 'sub_01again', customerId: 'ctm_01alice', status: 'canceled', type: 'subscription.canceled', at: site.iso(),
+    }));
+    site.advance(44 * DAY);
+    await site.cron();
+    assert.equal(warnings(site).length, 1, 'the first warning was for the first lapse');
+    site.advance(DAY);
+    await site.cron();
+    assert.equal(warnings(site).length, 2);
+    assert.equal(vaultCount(site), 1);
 });
 
 test('resubscribing within 60 days finds everything as it was', async (t) => {
@@ -385,34 +503,37 @@ test('subscribers and the complimentary list keep their vaults however long they
     assert.equal(site.db.sqlite.prepare('SELECT COUNT(*) AS n FROM vaults').get().n, 2);
 });
 
-test('a run that would erase an implausible number of vaults erases none', async (t) => {
+test('a run that would warn or erase an implausible number of vaults does neither', async (t) => {
     const site = createSite();
     t.after(site.restore);
     for (let i = 0; i < 21; i++) await withVault(site, `user${i}@example.com`, `user${i}`);
     site.advance(DAY);
     for (let i = 0; i < 21; i++) await cancel(site, `user${i}`);
-    site.advance(61 * DAY);
+    site.advance(91 * DAY);
 
     const errors = [];
     const error = console.error;
     console.error = (m) => errors.push(m);
     t.after(() => { console.error = error; });
     await site.cron();
-    assert.equal(site.db.sqlite.prepare('SELECT COUNT(*) AS n FROM vaults').get().n, 21);
+    assert.equal(warnings(site).length, 0);
+    assert.equal(vaultCount(site), 21);
+    assert.match(errors.join('\n'), /refusing to warn 21 of 21/);
     assert.match(errors.join('\n'), /refusing to erase 21 of 21/);
 });
 
-test('with an unreadable config, the daily job erases nothing', async (t) => {
+test('with an unreadable config, the daily job warns and erases nothing', async (t) => {
     const site = createSite();
     t.after(site.restore);
     await withVault(site);
     site.advance(DAY);
     await cancel(site);
-    site.advance(61 * DAY);
+    site.advance(91 * DAY);
     site.env.APP_ORIGIN = 'not a url';
     const error = console.error;
     console.error = () => {};
     t.after(() => { console.error = error; });
     await site.cron();
     assert.equal(site.db.sqlite.prepare('SELECT COUNT(*) AS n FROM vaults').get().n, 1);
+    assert.equal(warnings(site).length, 0);
 });

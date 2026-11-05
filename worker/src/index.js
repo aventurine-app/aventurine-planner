@@ -26,13 +26,16 @@
 import { hasAccess, summarize } from './access.js';
 import { currentSession, endSession, requestLogin, SESSION_TTL_MS, verifyLogin } from './auth.js';
 import { ConfigError, readConfig } from './config.js';
-import { sendLoginEmail } from './email.js';
+import { deletionWarningMessage, sendEmail, sendLoginEmail } from './email.js';
 import {
     HttpError, json, readJsonBody, redirect, requireSameOrigin, sessionCookie, withSecurityHeaders,
 } from './http.js';
 import { handleWebhook } from './paddle.js';
 import { hasCustomer, pruneExpired } from './store.js';
-import { handleVault, isVaultPath, purgeLapsedVaults } from './vault.js';
+import { handleVault, isVaultPath, purgeLapsedVaults, warnLapsedVaults } from './vault.js';
+
+// Where the deletion warning sends someone to subscribe again.
+const PRICING_URL = 'https://aventurine-app.com/aventurine-planner.html#pricing';
 
 // Served to anyone: the sign-in pages and what they need to look right. Not
 // the app's scripts.
@@ -220,6 +223,16 @@ export function createWorker({ now = Date.now } = {}) {
             console.error('[vault] retention skipped: config:', e.message);
             return;
         }
+        const send = async ({ to, deleteOn }) => {
+            const message = deletionWarningMessage({ deleteOn, loginUrl: `${config.appOrigin}/auth/login`, pricingUrl: PRICING_URL });
+            // Local development with no email provider: print it instead, as sign-in links are.
+            if (!config.secure && !env.RESEND_API_KEY) {
+                console.log(`[dev] deletion warning for ${to}: ${message.subject}`);
+                return;
+            }
+            await sendEmail({ apiKey: env.RESEND_API_KEY, from: config.emailFrom, to, message });
+        };
+        await warnLapsedVaults(env.DB, { now: now(), complimentary: config.complimentary, send });
         await purgeLapsedVaults(env.DB, { now: now(), complimentary: config.complimentary });
     }
 

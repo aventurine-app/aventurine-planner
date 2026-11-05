@@ -54,9 +54,13 @@ plan's name, contents or numbers.
   (`LIMITS` in `vault.js`). The app itself allows 15 plans.
 - **Retention.** A vault is kept while its owner has access and for 60 days
   after they lose it (counted from their last subscription change or last
-  use, whichever is later); resubscribing in that time finds everything. The
-  daily cron then erases it. If one run would erase more than 20 vaults and
-  more than 10% of all of them, it erases none and logs an error instead: that
+  use, whichever is later); resubscribing in that time finds everything. On
+  day 45 the daily cron emails the owner that their plans will be deleted and
+  how to keep them (`warnLapsedVaults`, once per lapse; a failed send is tried
+  the next day), and after day 60 it erases the vault, but never sooner than
+  14 days after that email (a vault whose email never goes out is erased 30
+  days late instead). If one run would warn or erase more than 20 vaults and
+  more than 10% of all of them, it does neither and logs an error instead: that
   points at missing webhooks or a bad deploy, not at real cancellations.
 - **Exporting after access ends.** For those 60 days the owner can still
   sign in (the inactive page links to `/export`) and read the vault: the GETs
@@ -196,7 +200,7 @@ website, and deploy again. Buy once with a real card and refund it.
 - **Sessions** last 30 days and are checked against the database on every
   request, so a cancellation or `logout` takes effect at once. The app that is
   already open in a tab keeps running until it is reloaded, but stops syncing.
-- **Deploying the vault** needs its migration applied first:
+- **Deploying the vault** needs its migrations (0002, 0003) applied first:
   `npx wrangler d1 migrations apply aventurine-prism --remote --config worker/wrangler.toml`.
 - **Rotating a secret.** Paddle lets two webhook secrets overlap; the worker
   accepts a request if any signature matches. Roll the secret in Paddle, then
