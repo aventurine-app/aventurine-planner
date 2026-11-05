@@ -25,7 +25,7 @@ import { randomToken, sha256Hex } from './crypto.js';
 import { normalizeEmail } from './email-address.js';
 import { HttpError, readCookie } from './http.js';
 import {
-    consumeLoginToken, countLoginTokens, createLoginToken, createSession, deleteSession, findSession, subscriptionsFor,
+    consumeLoginToken, countLoginTokens, createLoginToken, createSession, deleteSession, findSession, hasVault, subscriptionsFor,
 } from './store.js';
 
 const MINUTE = 60 * 1000;
@@ -49,7 +49,10 @@ export async function requestLogin(deps, rawEmail, ip) {
 
     const now = deps.now();
     const subscriptions = await subscriptionsFor(deps.db, email);
-    if (!hasAccess({ email, subscriptions, complimentary: deps.config.complimentary })) return;
+    // Someone whose access has ended may still sign in while their encrypted
+    // plans are kept (vault.js), to take them away; the app stays closed to them.
+    if (!hasAccess({ email, subscriptions, complimentary: deps.config.complimentary })
+        && !(await hasVault(deps.db, email))) return;
     // A fourth request inside the window gets no email and no error, so an
     // attacker cannot fill someone's inbox and cannot see that they were stopped.
     if (await countLoginTokens(deps.db, { email, since: now - LINK_TTL_MS }) >= MAX_LINKS_PER_WINDOW) return;

@@ -33,6 +33,8 @@ const UI_ICONS = [
     // Status tags and progress (met, missed, not measured), Compare's swap and
     // its differences up or down.
     'x-circle', 'minus-circle', 'arrows-left-right', 'arrow-up', 'arrow-down',
+    // Export: the PDF report, the spreadsheet, the plan file and Download All.
+    'file-pdf', 'file-csv', 'file-code', 'file-zip',
 ];
 
 // Each asset is one <svg> of <path d="…"/> elements. Anything

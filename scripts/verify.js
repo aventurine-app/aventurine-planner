@@ -6,7 +6,8 @@
 // runs from inside the page. Covers storage in IndexedDB, a reload, a save made
 // as the page closes, the one-editing-tab rule, export and import, and the
 // Storage preferences, and the navigation's workspaces with the goals they
-// share. Exits 0 on PASS.
+// share. It also opens the free sandbox (/demo) beside the app and checks its
+// limits, its reset, and that it leaves the app's own plans alone. Exits 0 on PASS.
 //
 //   npm run verify
 
@@ -53,6 +54,75 @@ async function until(js, expression, ms = 8000) {
 }
 
 const appReady = '!!(window.Store && Store.state.results)';
+
+/** The free sandbox, opened while `appTab` (the real app) holds the editing lock. */
+async function sandbox(url, appTab) {
+    const stored = () => appTab.js(`new Promise((resolve, reject) => {
+        const open = indexedDB.open('aventurine-prism');
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+            const tx = open.result.transaction(['plans', 'meta']);
+            const plans = tx.objectStore('plans').getAll();
+            const goals = tx.objectStore('meta').get('goals');
+            tx.oncomplete = () => resolve(JSON.stringify({ plans: plans.result.length, goals: goals.result.length }));
+        };
+    })`).then(JSON.parse);
+    const before = await stored();
+
+    const box = await openWindow(`${url}demo`);
+    const { js } = box;
+    check('the sandbox opens while another tab is editing', await until(js, appReady));
+    check('it is the sandbox, with its three limits',
+        await js('!!window.PrismDemo && CitrinePlan.LIMITS.nodes === 7 && CitrinePlan.LIMITS.goals === 1 && PrismDemo.LIMITS.plans === 1'));
+    check('it starts with one blank plan', await js('Store.state.tabs.length === 1 && Store.state.plan.nodes.length === 0'));
+    check('the plan is called Demo Plan and the bar says Demo',
+        await js(`Store.state.plan.name === 'Demo Plan' && document.querySelector('.titlebar-name').textContent === 'Aventurine Planner Demo'`));
+    check('the bar names it and shows what is left',
+        await js(`document.querySelector('.titlebar-user-name').textContent === 'Free demo'
+            && document.querySelector('[data-cap="modules"]').textContent.includes('0/7')`));
+
+    // Modules: the example makes five, two more fit, the eighth is refused.
+    await js('document.querySelector(\'.canvas-empty [data-act="example"]\').click()');
+    check('the example fits', await until(js, 'Store.state.plan.nodes.length === 5'));
+    await js('Canvas.addAtCenter("bank-account"); Canvas.addAtCenter("expense"); Canvas.addAtCenter("expense"); true');
+    check('a plan holds seven modules and refuses the eighth', await js('Store.state.plan.nodes.length === 7'));
+    check('the refusal says why and offers the full app',
+        await js(`document.querySelector('.toast span').textContent === 'A plan holds at most 7 modules.'
+            && document.querySelector('.toast-action').textContent === 'Get the full app'`));
+    check('copying a module past the limit is refused too',
+        await js('Store.duplicateNode(Store.state.plan.nodes[0].id) === null && Store.state.plan.nodes.length === 7'));
+    check('the meter reaches 7/7', await until(js, `document.querySelector('[data-cap="modules"]').dataset.state === 'full'`));
+
+    // Plans: only the one. Import is refused before any file picker opens.
+    await js('Store.newPlan()');
+    check('a second plan is refused', await until(js, `document.querySelector('.toast span').textContent === 'You can have at most 1 plan.'`) && await js('Store.state.tabs.length === 1'));
+    await js('Store.importPlan()');
+    check('importing a plan is refused', await until(js, `document.querySelector('.toast span').textContent === 'Not imported: the sandbox holds one plan.'`));
+
+    // Goals: only the one.
+    check('one goal is allowed', await js('Store.addGoal({ name: "First" }) !== null && Store.state.goals.length === 1'));
+    check('a second is refused', await js('Store.addGoal({ name: "Second" }) === null && Store.state.goals.length === 1'));
+    await js(`document.querySelector('.nav-item[data-go="goals"]').click();
+        document.querySelector('.goals-board [data-act="add"]').click(); true`);
+    check('and the goal editor will not open for it', await js(`!document.querySelector('.goal-editor')`));
+
+    // A reload keeps the work (the tab's own session), and the app's data is untouched.
+    await js('Store.flush()');
+    await box.win.webContents.reloadIgnoringCache();
+    check('a reload keeps the plan and the goal',
+        await until(js, appReady + ' && Store.state.plan.nodes.length === 7 && Store.state.goals.length === 1'));
+    const after = await stored();
+    check('the full app\'s own plans and goals are untouched', after.plans === before.plans && after.goals === before.goals);
+
+    // Reset clears it.
+    await js('Settings.open("account")');
+    await js('document.querySelector("[data-sandbox-reset]").click()');
+    check('Reset asks first', await until(js, `!!document.querySelector('.modal .button-danger')`));
+    await js('document.querySelector(".modal .button-danger").click()');
+    check('Reset starts the sandbox again',
+        await until(js, appReady + ' && Store.state.plan.nodes.length === 0 && Store.state.goals.length === 0', 10000));
+    box.win.destroy();
+}
 
 async function main(url) {
     const first = await openWindow(url);
@@ -146,6 +216,27 @@ async function main(url) {
     check('a goal is stored once, for every plan, as its rule',
         goals.length === 1 && goals[0].name === 'Retire' && goals[0].metric === 'net-worth'
             && goals[0].unit === 'times' && goals[0].value === 25 && goals[0].due === 'age' && goals[0].age === 65);
+    // Export: the plan menu's dialog, Download All and the report (printing is faked).
+    await js(`window.showSaveFilePicker = async (o) => ({ createWritable: async () => ({
+        write: async (t) => { window.__saved = typeof t === 'string' ? { name: o.suggestedName, text: t }
+            : { name: o.suggestedName, head: Array.from(t.slice(0, 4)) }; }, close: async () => {} }) });
+        window.print = () => { window.__printed = { sections: document.querySelectorAll('.report .report-plan').length,
+            charts: document.querySelectorAll('.report svg.report-chart').length, goals: document.querySelectorAll('.report h3').length,
+            shownWhenPrinting: getComputedStyle(document.querySelector('.report')).display, title: document.title };
+            window.dispatchEvent(new Event('afterprint')); };
+        ExportMenu.plan(Store.state.activeId); true`);
+    check('Export… offers a report, a spreadsheet and the plan file',
+        await until(js, `document.querySelectorAll('.export-choice').length === 3`));
+    await js(`document.querySelector('.export-choice[data-format="csv"]').click(); true`);
+    check('the spreadsheet saves month by month', await until(js, `window.__saved && window.__saved.name.endsWith('.csv')
+        && window.__saved.text.startsWith('\\uFEFFMonth,') && !document.querySelector('.export-choice')`));
+    await js(`Settings.open('storage'); document.querySelector('[data-export-all]').click(); true`);
+    check('Download All saves a zip', await until(js, `window.__saved && window.__saved.name.endsWith('.zip') && window.__saved.head.join() === '80,75,3,4'`));
+    await js(`document.querySelector('[data-export-report]').click(); true`);
+    check('the report covers every plan with its charts', await until(js, `window.__printed && window.__printed.sections === 2 && window.__printed.charts === 4`));
+    check('it is hidden on screen, and taken away after printing', await js(`window.__printed.shownWhenPrinting === 'none' && !document.querySelector('.report')`));
+    await js('UI.closeModal(document.getElementById("prefs")); true');
+
     await js(`document.querySelector('.nav-plan').click()`);
     check('pressing a plan opens it in the builder', await until(js, showsOnly('builder') + ` && Store.state.workspace === 'plans'`));
 
@@ -164,6 +255,8 @@ async function main(url) {
         await until(second.js, `!document.getElementById('lockscreen').hidden
             && document.querySelector('.lock-title').textContent.includes('another tab')`));
     check('and does not load the plans meanwhile', await second.js('!document.getElementById("app") || document.getElementById("app").hidden'));
+
+    await sandbox(url, first);
 
     first.win.destroy();
     check('once the first tab closes, the second opens the plans',

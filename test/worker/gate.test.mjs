@@ -56,11 +56,40 @@ test('the sign-in pages and the look they need are public', async (t) => {
     assert.equal((await site.call('/auth/login.html')).status, 401, 'only the clean URL is a page');
 });
 
+test('the free sandbox and its scripts are public, and only the sandbox\'s own copy of them', async (t) => {
+    const site = createSite();
+    t.after(site.restore);
+    for (const path of ['/demo', '/demo/']) {
+        const page = await site.call(path);
+        assert.equal(page.status, 200, path);
+        assert.ok((await page.text()).includes('free demo'), path);
+    }
+    const script = await site.call('/demo/js/demo/boot.js');
+    assert.equal(script.status, 200);
+    assert.equal(await script.text(), 'sandbox boot script');
+    assert.equal((await site.call('/demo/js/app/missing.js')).status, 404);
+    // The sandbox opens nothing else: the app and its scripts are still for subscribers.
+    assert.equal((await site.call('/static/js/app/store.js')).status, 401);
+    assert.equal((await site.call('/demo/index.html')).status, 401, 'only the clean URL is a page');
+    assert.equal((await site.call('/demo/other')).status, 401);
+});
+
+test('the export page is public (it asks for the vault itself), and only at its clean URL', async (t) => {
+    const site = createSite();
+    t.after(site.restore);
+    const page = await site.call('/export');
+    assert.equal(page.status, 200);
+    assert.ok((await page.text()).includes('export page'));
+    assert.equal(page.headers.get('Content-Security-Policy').includes("script-src 'self'"), true);
+    assert.equal((await site.call('/export/index.html')).status, 401);
+});
+
 test('dot-segment tricks cannot reach app code through a public path', async (t) => {
     const site = createSite();
     t.after(site.restore);
     for (const path of ['/static/js/auth/../app/store.js', '/static/js/auth/%2e%2e/app/store.js',
-        '/static/css/../js/app/store.js', '/auth/../static/js/app/store.js']) {
+        '/static/css/../js/app/store.js', '/auth/../static/js/app/store.js',
+        '/demo/js/../../static/js/app/store.js', '/demo/js/%2e%2e/%2e%2e/static/js/app/store.js']) {
         const r = await site.call(path);
         assert.notEqual(r.status, 200, path);
         assert.ok(!(await r.text()).includes(APP_CODE), path);

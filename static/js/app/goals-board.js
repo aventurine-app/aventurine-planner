@@ -67,7 +67,6 @@
             <section class="card" data-matrix-card aria-labelledby="goals-matrix-title">
                 <div class="card-head">
                     <h2 class="card-title" id="goals-matrix-title">Across plans</h2>
-                    <span class="card-extra">When each plan meets each goal, over its own length</span>
                 </div>
                 <div class="card-body card-body--flush"><div class="table-wrap" data-matrix></div></div>
             </section>
@@ -208,7 +207,7 @@
         const existing = id ? Store.goal(id) : null;
         if (id && !existing) return;
         if (!existing && Store.state.goals.length >= P.LIMITS.goals) {
-            UI.toast(`You can set at most ${P.LIMITS.goals} goals.`, { type: 'error' });
+            Store.limitReached('goals', P.LIMITS.goals);
             return;
         }
         // The rule being written: a copy, so Cancel leaves the goal as it was.

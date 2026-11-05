@@ -11,6 +11,7 @@
     <link rel="stylesheet" href="/static/css/outlook.css">
     <link rel="stylesheet" href="/static/css/goals.css">
     <link rel="stylesheet" href="/static/css/compare.css">
+    <link rel="stylesheet" href="/static/css/report.css">
 </head>
 <body>
     <!-- @include chrome -->
@@ -49,12 +50,16 @@
     </div>
 
     <div class="lockscreen" id="lockscreen" hidden></div>
+    <!-- Encrypted sync: save or enter the recovery key (shell/vault-gate.js). -->
+    <div class="lockscreen" id="vault-screen" hidden></div>
 
     <!-- @include scripts -->
     <script src="/static/js/app/describe.js"></script>
+    <script src="/static/js/shell/report.js"></script>
     <script src="/static/js/app/example.js"></script>
     <script src="/static/js/app/store.js"></script>
     <script src="/static/js/app/runs.js"></script>
+    <script src="/static/js/app/export-menu.js"></script>
     <script src="/static/js/app/titlebar.js"></script>
     <script src="/static/js/app/nav.js"></script>
     <script src="/static/js/app/library.js"></script>

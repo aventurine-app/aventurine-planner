@@ -83,8 +83,8 @@
                         <div class="settings-section-header eyebrow">Browser Storage</div>
                         <div class="settings-card">
                             <div class="settings-row settings-row--stack">
-                                <div class="settings-row-name">Your plans stay in this browser</div>
-                                <div class="settings-row-desc">They are saved on this device and never sent to a server. Clearing your browser's site data deletes them, and they do not follow you to another browser or computer. Export your plans often to keep copies of your own.</div>
+                                <div class="settings-row-name">Where your plans are kept</div>
+                                <div class="settings-row-desc">This browser keeps a working copy, so the app works offline. Your plans are also saved to your account, encrypted on this device with a key only you hold, so you can open them on any device with your recovery key. We cannot read them. Signing out removes this browser's copy.</div>
                             </div>
                             <div class="settings-row">
                                 <div class="settings-row-label">
@@ -93,6 +93,29 @@
                                 </div>
                                 <div class="settings-actions">
                                     <button class="button-secondary" type="button" data-persist-request hidden>Keep My Plans</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="settings-section">
+                        <div class="settings-section-header eyebrow">Export</div>
+                        <div class="settings-card">
+                            <div class="settings-row">
+                                <div class="settings-row-label">
+                                    <div class="settings-row-name">Download All</div>
+                                    <div class="settings-row-desc">A zip of every plan and your goals: one file that imports again, and a spreadsheet (CSV) for each plan.</div>
+                                </div>
+                                <div class="settings-actions">
+                                    <button class="button-secondary" type="button" data-export-all>Download All</button>
+                                </div>
+                            </div>
+                            <div class="settings-row">
+                                <div class="settings-row-label">
+                                    <div class="settings-row-name">Report of All Plans</div>
+                                    <div class="settings-row-desc">Charts, figures and goals for every plan. Choose Save as PDF in the print dialog.</div>
+                                </div>
+                                <div class="settings-actions">
+                                    <button class="button-secondary" type="button" data-export-report>Print Report</button>
                                 </div>
                             </div>
                         </div>
@@ -121,6 +144,24 @@
                                 <button class="button-secondary" type="button" data-account-signout>Sign Out</button>
                             </div>
                             <p class="settings-row-desc" data-account-error role="alert" hidden></p>
+                        </div>
+                    </div>
+                    <div class="settings-section" data-sync-section hidden>
+                        <div class="settings-section-header eyebrow">Encrypted Sync</div>
+                        <div class="settings-card">
+                            <div class="settings-row settings-row--stack">
+                                <div class="settings-row-name">Sync</div>
+                                <div class="settings-row-desc" data-sync-status role="status" aria-live="polite"></div>
+                            </div>
+                            <div class="settings-row" data-sync-key-row hidden>
+                                <div class="settings-row-label">
+                                    <div class="settings-row-name">Recovery Key</div>
+                                    <div class="settings-row-desc">Lost your key? Make a new one from this device. The old one will stop working.</div>
+                                </div>
+                                <div class="settings-actions">
+                                    <button class="button-secondary" type="button" data-sync-new-key>New Recovery Key</button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>

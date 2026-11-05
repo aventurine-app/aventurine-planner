@@ -488,5 +488,5 @@
         if (toastEl) toastEl.classList.remove('is-visible');
     }
 
-    window.UI = { menu, popover, picker, iconPicker, monthPicker, closePop, confirm, toast, openModal, closeModal };
+    window.UI = { menu, popover, picker, iconPicker, monthPicker, closePop, dialog, confirm, toast, openModal, closeModal };
 }());

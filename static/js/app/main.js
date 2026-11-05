@@ -1,7 +1,8 @@
 'use strict';
 
 // ─── main.js ────────────────────────────────────────────────────────────────
-// Boot: load the plans (or wait, if another tab is editing), then hand over to the
+// Boot: settle encrypted sync (save or enter the recovery key, shell/vault-gate.js),
+// load the plans (or wait, if another tab is editing), then hand over to the
 // modules, which all render from Store events. Also the app-wide shortcuts.
 
 (function () {
@@ -62,5 +63,12 @@
         Outlook.render();
     });
 
-    boot();
+    async function start() {
+        // Encrypted sync is settled first (save or enter the recovery key), and
+        // the backend told how it went; the plans load after. The sandbox has none.
+        if (window.VaultGate) PrismWeb.beginSync(await VaultGate.ensure());
+        boot();
+    }
+
+    start();
 }());

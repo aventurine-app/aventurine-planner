@@ -4,26 +4,67 @@ One Cloudflare Worker serves the whole app and decides who may open it. A
 visitor signs in by email link; Paddle tells the worker who has paid; the app's
 page and scripts go only to someone with an active subscription.
 
-**Plans never touch this server.** They live in the visitor's browser
-(`static/js/web/`). The worker knows an email address, whether it has a
-subscription, and who is signed in. Nothing else.
+**Plans reach this server only as ciphertext.** The browser encrypts them with
+a key the server never sees (see "The vault" below), so they follow the user
+to any device without the server being able to read them. Besides that
+ciphertext, the worker knows an email address, whether it has a subscription,
+and who is signed in.
 
 ## What it does
 
 | Route | Who | Job |
 |---|---|---|
 | `POST /api/paddle/webhook` | Paddle (signature checked) | Copies customers and subscriptions into the database |
-| `POST /api/auth/request` | anyone | Emails a one-time sign-in link, only to emails with access (the access rule below) |
+| `POST /api/auth/request` | anyone | Emails a one-time sign-in link, only to emails with access (the access rule below) or with saved plans still kept |
 | `POST /api/auth/verify` | anyone with a link | Spends the link, starts a session |
 | `POST /api/auth/logout`, `GET /api/me` | signed in | End the session; who am I and what do I have |
 | `POST /api/billing/portal` | signed in customers | The link to Paddle's billing page |
+| `/api/vault`, `/api/vault/items[/:id]` | active subscription; reading only, signed in without one | The encrypted plans: the wrapped key, pull changes, conditional writes, erase |
 | `/auth/login`, `/auth/confirm`, `/auth/inactive`, CSS, fonts, icons | public | The sign-in pages and what they need |
+| `/demo`, `/demo/js/*` | public | The free sandbox (one plan, seven modules, one goal) and its copy of the scripts |
+| `/export` | public (it asks the vault itself) | The export page: a lapsed subscriber opens their plans with their recovery key and downloads them; runs from `/demo/js/` |
 | everything else (`/`, all app JavaScript) | active subscription | The app |
 
 Code map: `src/index.js` (routes and the access rule's enforcement), `paddle.js`
 (signature, events), `auth.js` (links and sessions), `access.js` (who
-gets in), `store.js` (every SQL statement), `email.js`, `http.js`, `config.js`,
-`crypto.js`. Schema: `migrations/`.
+gets in), `vault.js` (encrypted plans and their retention), `store.js` (every
+SQL statement), `email.js`, `http.js`, `config.js`, `crypto.js`. Schema:
+`migrations/`.
+
+## The vault
+
+The browser makes a random data key, encrypts each plan (and the tab order and
+goals) with it, and stores the data key here only encrypted under a **recovery
+key** that it shows the user once and never sends. There is no other way in:
+a user who loses their recovery key and every signed-in device loses their
+plans, and support cannot get them back. Their only option is to erase the
+vault and start over.
+
+What the server can see: the email, the item ids (random, e.g. `p_x7k2m9q4`),
+how many items there are and their sizes, and when each was written. Not a
+plan's name, contents or numbers.
+
+- **Writes are conditional.** Each names the version it replaces; a stale
+  one gets `409` and the current value, and the browser decides what to keep.
+  Deleting leaves an empty marker so other devices see the deletion.
+- **Erasing** (`DELETE /api/vault` with the vault's id) removes everything.
+  Re-creating makes a new vault id, so a device still holding the old data key
+  gets `409 vault_changed` instead of writing into the new vault with it.
+- **Limits:** 512 KiB per item, 16 MiB and 5,000 items per account
+  (`LIMITS` in `vault.js`). The app itself allows 15 plans.
+- **Retention.** A vault is kept while its owner has access and for 60 days
+  after they lose it (counted from their last subscription change or last
+  use, whichever is later); resubscribing in that time finds everything. The
+  daily cron then erases it. If one run would erase more than 20 vaults and
+  more than 10% of all of them, it erases none and logs an error instead: that
+  points at missing webhooks or a bad deploy, not at real cancellations.
+- **Exporting after access ends.** For those 60 days the owner can still
+  sign in (the inactive page links to `/export`) and read the vault: the GETs
+  answer with `access: false` and `keptUntil`, the day the daily job may
+  erase it. Every write is refused (`403 no_subscription`), and reading does
+  not count as use, so it never puts the erasing off. The app itself stays
+  closed to them.
+- **A changed email** (Paddle's `customer.updated`) takes the vault with it.
 
 ## Access rule
 
@@ -142,9 +183,9 @@ website, and deploy again. Buy once with a real card and refund it.
 ## Things worth knowing
 
 - **Customers who cannot sign in.** The sign-in form only emails addresses
-  whose subscription grants access (or that are in `COMPLIMENTARY_EMAILS`), so
-  someone who left checkout before paying, or whose subscription has ended,
-  gets nothing. If someone says no email arrives: run the query above first (no
+  whose subscription grants access (or that are in `COMPLIMENTARY_EMAILS`), or
+  that still have a vault kept after their access ended, so someone who left
+  checkout before paying, or whose plans were already erased, gets nothing. If someone says no email arrives: run the query above first (no
   row means Paddle's `customer.created` or `subscription.created` was never
   delivered: see Paddle's notification log; a `canceled` or `paused` status
   means it is working as intended), then Resend's log, then spam.
@@ -154,8 +195,9 @@ website, and deploy again. Buy once with a real card and refund it.
   Each write only applies if it is newer than what is stored (`store.js`).
 - **Sessions** last 30 days and are checked against the database on every
   request, so a cancellation or `logout` takes effect at once. The app that is
-  already open in a tab keeps running until it is reloaded; the plans are local
-  either way.
+  already open in a tab keeps running until it is reloaded, but stops syncing.
+- **Deploying the vault** needs its migration applied first:
+  `npx wrangler d1 migrations apply aventurine-prism --remote --config worker/wrangler.toml`.
 - **Rotating a secret.** Paddle lets two webhook secrets overlap; the worker
   accepts a request if any signature matches. Roll the secret in Paddle, then
   `wrangler secret put PADDLE_WEBHOOK_SECRET`.

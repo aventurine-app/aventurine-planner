@@ -18,7 +18,8 @@
     "icons:ui": "node scripts/make-ui-icons.js",
     "worker:dev": "wrangler dev --config worker/wrangler.toml",
     "worker:deploy": "npm run build && wrangler deploy --config worker/wrangler.toml",
-    "worker:smoke": "node scripts/smoke-worker.mjs"
+    "worker:smoke": "node scripts/smoke-worker.mjs",
+    "verify:sync": "electron scripts/verify-sync.js --no-sandbox"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

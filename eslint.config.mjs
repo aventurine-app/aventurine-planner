@@ -27,17 +27,21 @@ const appGlobals = {
     CitrinePlan: 'readonly',
     CitrineEngine: 'readonly',
     CitrineGoals: 'readonly',
+    CitrineSummary: 'readonly', // summary.js (a run's figures, for Analyze and the exports)
     // shell/
     UI: 'readonly',             // ui.js
     Components: 'readonly',     // components.js (Ant Design's display components, as HTML)
     Settings: 'readonly',       // settings.js
     Account: 'readonly',        // account.js
+    VaultGate: 'readonly',      // vault-gate.js (encrypted sync's screens)
+    Report: 'readonly',         // report.js (the PDF report, printed)
     authPost: 'readonly',       // auth/common.js (the public sign-in pages)
     // app/
     Describe: 'readonly',
     CitrineExample: 'readonly',
     Store: 'readonly',
     Runs: 'readonly',           // app/runs.js
+    ExportMenu: 'readonly',     // app/export-menu.js
     Nav: 'readonly',            // app/nav.js
     Canvas: 'readonly',
     Inspector: 'readonly',
@@ -47,8 +51,11 @@ const appGlobals = {
     OtherTab: 'readonly',
     // web/ (the browser backend; each file adds its parts to this one object)
     PrismWeb: 'readonly',
-    // the data bridge installed by static/js/web/boot.js
+    // the data bridge installed by static/js/web/boot.js (demo/boot.js in the sandbox)
     citrineApi: 'readonly',
+    // the free sandbox (static/js/demo/): its limits, and its reset
+    PrismDemo: 'readonly',
+    PrismSandbox: 'readonly',
 };
 
 export default [
@@ -87,7 +94,7 @@ export default [
     // The simulation core and the browser backend's logic are dual-environment:
     // classic scripts that also module.exports themselves for Node.
     {
-        files: ['static/js/sim/*.js', 'static/js/web/*.js'],
+        files: ['static/js/sim/*.js', 'static/js/web/*.js', 'static/js/demo/storage.js'],
         languageOptions: { globals: { module: 'readonly', require: 'readonly' } },
     },
 

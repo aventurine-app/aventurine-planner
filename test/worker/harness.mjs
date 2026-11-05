@@ -39,8 +39,10 @@ export function createTestDb() {
         async batch(statements) {
             sqlite.exec('BEGIN');
             try {
-                for (const s of statements) await s.run();
+                const results = [];
+                for (const s of statements) results.push(await s.run());
                 sqlite.exec('COMMIT');
+                return results;
             } catch (e) {
                 sqlite.exec('ROLLBACK');
                 throw e;
@@ -95,6 +97,9 @@ export function createSite({ complimentary = OWNER, files, rateLimit, origin = O
         '/auth/login.html': '<!doctype html><title>sign in</title>',
         '/auth/confirm.html': '<!doctype html><title>confirm</title>',
         '/auth/inactive.html': '<!doctype html><title>inactive</title>',
+        '/demo/index.html': '<!doctype html><title>free demo</title>',
+        '/demo/js/demo/boot.js': 'sandbox boot script',
+        '/export/index.html': '<!doctype html><title>export page</title>',
     };
     const limited = new Set();
     const env = {
@@ -150,6 +155,13 @@ export function createSite({ complimentary = OWNER, files, rateLimit, origin = O
         restore: () => { globalThis.fetch = realFetch; },
         advance: (ms) => { clock.now += ms; },
         iso: (offsetMs = 0) => new Date(clock.now + offsetMs).toISOString(),
+
+        /** Run the daily scheduled job and wait for it. */
+        async cron() {
+            const work = [];
+            worker.scheduled({}, env, { waitUntil: (p) => { work.push(p); } });
+            await Promise.all(work);
+        },
 
         /** Deliver a signed webhook, as Paddle would. */
         async webhook(event, { secret, ts } = {}) {

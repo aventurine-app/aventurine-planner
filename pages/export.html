@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Export Your Plans · Aventurine Planner</title>
+    <!-- @include head -->
+    <link rel="stylesheet" href="/static/css/auth.css">
+    <link rel="stylesheet" href="/static/css/export-page.css">
+    <link rel="stylesheet" href="/static/css/report.css">
+</head>
+<body>
+    <!-- The export page: someone whose subscription has ended opens their
+         encrypted plans with their recovery key and downloads them, during
+         the 60 days they are kept. Nothing is saved in this browser. Its
+         scripts are the public copy of the app's (/demo/js/ once built; see
+         assembleExportPage in scripts/assemble.js). -->
+    <main class="auth-page">
+        <canvas class="dot-wave" aria-hidden="true"></canvas>
+        <section class="auth-card export-card" aria-labelledby="auth-title">
+            <h1 class="auth-title" id="auth-title">Export your plans</h1>
+            <p class="auth-note" id="export-note" role="status">One moment.</p>
+
+            <form class="auth-form" id="export-unlock" novalidate hidden>
+                <label class="auth-label" for="export-key">Recovery key</label>
+                <input class="field-input recovery-key-input" id="export-key" type="text" autocomplete="off"
+                       autocapitalize="characters" spellcheck="false" maxlength="64"
+                       placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" aria-describedby="export-error">
+                <p class="auth-error" id="export-error" role="alert" hidden></p>
+                <button class="button-primary" type="submit">Open My Plans</button>
+            </form>
+
+            <div class="export-ready" id="export-ready" hidden>
+                <div class="auth-actions">
+                    <button class="button-primary" type="button" id="export-all">Download All</button>
+                    <button class="button-secondary" type="button" id="export-report">Print Report of All Plans</button>
+                </div>
+                <ul class="export-list" id="export-list" aria-label="Your plans"></ul>
+                <p class="auth-error" id="export-failed" role="alert" hidden></p>
+            </div>
+
+            <p class="auth-foot" id="export-foot" hidden>
+                <a class="auth-link-underline" href="https://aventurine-app.com/aventurine-planner.html#pricing">Subscribe again</a>
+                to keep using your plans. <button class="button-link" type="button" id="export-signout">Sign out</button>
+            </p>
+        </section>
+    </main>
+    <script src="/static/js/core/escape.js"></script>
+    <script src="/static/js/core/prefs.js"></script>
+    <script src="/static/js/core/format.js"></script>
+    <script src="/static/js/core/icon-data.js"></script>
+    <script src="/static/js/core/icons.js"></script>
+    <script src="/static/js/sim/catalog.js"></script>
+    <script src="/static/js/sim/plan.js"></script>
+    <script src="/static/js/sim/engine.js"></script>
+    <script src="/static/js/sim/goals.js"></script>
+    <script src="/static/js/sim/summary.js"></script>
+    <script src="/static/js/web/api-error.js"></script>
+    <script src="/static/js/web/plan-files.js"></script>
+    <script src="/static/js/web/exports.js"></script>
+    <script src="/static/js/web/file-dialogs.js"></script>
+    <script src="/static/js/web/vault-crypto.js"></script>
+    <script src="/static/js/web/vault-api.js"></script>
+    <script src="/static/js/web/vault-keys.js"></script>
+    <script src="/static/js/web/sync.js"></script>
+    <script src="/static/js/app/describe.js"></script>
+    <script src="/static/js/shell/report.js"></script>
+    <script src="/static/js/shell/export-page.js"></script>
+    <script src="/static/js/auth/dot-wave.js"></script>
+</body>
+</html>

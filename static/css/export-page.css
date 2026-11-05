@@ -1,0 +1,35 @@
+/* ─── export-page.css ────────────────────────────────────────────────────────
+   The export page (pages/export.html): the sign-in pages' card (auth.css),
+   wider, with the plans listed under the two actions for all of them. */
+
+.auth-card.export-card { max-width: 560px; }
+
+.export-ready { display: flex; flex-direction: column; gap: var(--space-16); }
+
+.export-list {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border-top: var(--line-width) solid var(--color-split);
+}
+.export-item {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-8) var(--space-16);
+    padding: var(--space-12) 0;
+    border-bottom: var(--line-width) solid var(--color-split);
+}
+.export-item-name {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    color: var(--color-text);
+    font-weight: var(--font-weight-strong);
+}
+.export-item-actions { display: flex; gap: var(--space-8); }
+.export-item-actions .icon { width: 16px; height: 16px; }
+
+.auth-foot .button-link { height: auto; padding: 0; font-size: inherit; }

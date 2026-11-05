@@ -116,10 +116,10 @@
     const persistDesc = overlay.querySelector('[data-persist-desc]');
     const persistBtn = overlay.querySelector('[data-persist-request]');
     const PERSIST_TEXT = {
-        kept: 'The browser will not clear your plans when it runs low on space.',
-        open: 'The browser may clear your plans when it runs low on space. Ask it to keep them.',
-        declined: 'The browser declined. It may still clear your plans when space runs low, so export them often.',
-        unsupported: 'This browser cannot promise to keep your plans, so export them often.',
+        kept: 'The browser will not clear its copy of your plans when it runs low on space.',
+        open: 'The browser may clear its copy of your plans when it runs low on space. Ask it to keep that copy.',
+        declined: 'The browser declined. If it clears its copy, your synced plans are still in your account.',
+        unsupported: 'This browser cannot promise to keep its copy, but your synced plans are also in your account.',
     };
 
     function showPersistence(state) {

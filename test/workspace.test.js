@@ -150,6 +150,15 @@ test('a plan is refused past the limit and when its id is taken', async () => {
     await rejectsWith(ws.addPlan(samplePlan()), 409, `at most ${MAX_PLANS} plans`);
 });
 
+test('the plan limit can be lowered, and one plan reads "plan" not "plans"', async () => {
+    const storage = createMemoryStorage();
+    const ws = createWorkspace({ storage, clock: () => NOW, logger: silent, maxPlans: 1 });
+    await ws.init();
+    await ws.addPlan(samplePlan());
+    await rejectsWith(ws.addPlan(samplePlan('Second')), 409, 'at most 1 plan');
+    assert.equal(ws.listPlans().plans.length, 1);
+});
+
 test('importing the same plan twice gives two independent plans', async () => {
     const { ws } = await open();
     const raw = samplePlan('Shared');

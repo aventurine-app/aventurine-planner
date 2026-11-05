@@ -174,7 +174,8 @@
 .dialog .modal-close { margin-left: auto; }
 .modal-title-icon { width: 22px; height: 22px; flex: none; color: var(--color-warning); }
 .modal-title-icon.is-danger { color: var(--color-error); }
-.dialog .modal-body { padding-left: calc(var(--space-24) + 22px + var(--space-12)); }
+/* The body lines up under the title, past the icon when there is one (Modal.confirm). */
+.dialog:has(.modal-title-icon) .modal-body { padding-left: calc(var(--space-24) + 22px + var(--space-12)); }
 .dialog .modal-body p { margin: 0; color: var(--color-text); font-size: var(--font-size); line-height: var(--line-height); }
 
 /* ─── Toast: Ant's message ──────────────────────────────────────────────────
@@ -399,3 +400,37 @@
 .field-month > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .field-month .icon { width: 14px; height: 14px; color: var(--color-text-quaternary); }
 .field-month.is-empty { color: var(--color-text-quaternary); }
+
+/* ─── Export dialog (app/export-menu.js) ────────────────────────────────────
+ * Three formats, each a full-width button: its file icon, a name and what it
+ * holds. Picking one closes the dialog and makes the file. */
+.export-choices {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-8);
+    width: min(400px, 100%);
+}
+.export-choice {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-12);
+    width: 100%;
+    min-height: 44px;
+    padding: var(--space-12) var(--space-16);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    background: var(--color-bg-container);
+    color: var(--color-text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.2s, background-color 0.2s;
+}
+.export-choice > .icon { flex: none; width: 24px; height: 24px; margin-top: 2px; color: var(--color-primary); }
+.export-choice:hover { border-color: var(--color-primary-hover); }
+.export-choice:active { background: var(--control-item-bg-active); border-color: var(--color-primary-active); }
+.export-choice:focus-visible { outline: 4px solid var(--color-primary-border); outline-offset: 1px; border-color: var(--color-primary); }
+.export-choice-text { display: flex; flex-direction: column; gap: var(--space-4); }
+.export-choice-title { font-weight: var(--font-weight-strong); line-height: var(--line-height); }
+.export-choice-desc { color: var(--color-text-secondary); font-size: var(--font-size-sm); line-height: 20px; }
+@media (prefers-reduced-motion: reduce) { .export-choice { transition: none; } }

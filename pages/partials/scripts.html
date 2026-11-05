@@ -13,17 +13,27 @@
     <script src="/static/js/sim/plan.js"></script>
     <script src="/static/js/sim/engine.js"></script>
     <script src="/static/js/sim/goals.js"></script>
+    <script src="/static/js/sim/summary.js"></script>
     <!-- The browser backend: plans in IndexedDB behind window.citrineApi. The
          order is load-bearing (boot.js uses all the rest). -->
     <script src="/static/js/web/api-error.js"></script>
     <script src="/static/js/web/plan-files.js"></script>
+    <script src="/static/js/web/exports.js"></script>
     <script src="/static/js/web/session.js"></script>
     <script src="/static/js/web/storage.js"></script>
     <script src="/static/js/web/workspace.js"></script>
     <script src="/static/js/web/backend.js"></script>
     <script src="/static/js/web/file-dialogs.js"></script>
+    <!-- Encrypted sync: the crypto, the server calls, this device's keys, the
+         recovery-key flow (vault-session.js) and the plans' sync (sync.js). -->
+    <script src="/static/js/web/vault-crypto.js"></script>
+    <script src="/static/js/web/vault-api.js"></script>
+    <script src="/static/js/web/vault-keys.js"></script>
+    <script src="/static/js/web/vault-session.js"></script>
+    <script src="/static/js/web/sync.js"></script>
     <script src="/static/js/web/boot.js"></script>
     <script src="/static/js/shell/ui.js"></script>
     <script src="/static/js/shell/components.js"></script>
+    <script src="/static/js/shell/vault-gate.js"></script>
     <script src="/static/js/shell/account.js"></script>
     <script src="/static/js/shell/settings.js"></script>

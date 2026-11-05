@@ -7,7 +7,7 @@
 /* The bar is dark in both themes, so what sits on it uses light inks of its
    own rather than the theme's text colours. */
 :root {
-    --titlebar-bg: #000;
+    --titlebar-bg: #1a1a19;
     --titlebar-ink: rgba(255, 255, 255, 0.65);
     --titlebar-ink-strong: rgba(255, 255, 255, 0.85);
     --titlebar-hover: rgba(255, 255, 255, 0.12);

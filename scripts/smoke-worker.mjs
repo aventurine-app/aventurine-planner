@@ -1,6 +1,7 @@
 // End-to-end check of the worker in Cloudflare's real local runtime (workerd),
 // with a throwaway local D1 database and the built app. Drives sign-in, the
-// access rule, signed Paddle webhooks and sign-out over HTTP. Needs no secrets
+// access rule, signed Paddle webhooks, the encrypted vault, sign-out and the
+// public free sandbox (/demo) over HTTP. Needs no secrets
 // and touches none of your local state.
 //
 //   npm run worker:smoke
@@ -75,6 +76,23 @@ try {
     check('stylesheets are public', r.status === 200);
     check('security headers are sent', (r.headers.get('content-security-policy') || '').includes("frame-ancestors 'none'") && r.headers.get('x-content-type-options') === 'nosniff');
 
+    // The free sandbox is for anyone, with its own copy of the scripts.
+    r = await req('/demo');
+    const demo = await r.text();
+    check('the free sandbox is public', r.status === 200 && demo.includes('<title>Aventurine Planner | Free Demo</title>'), `${r.status}`);
+    check('and the page is HTML', (r.headers.get('content-type') || '').startsWith('text/html'), r.headers.get('content-type'));
+    const demoScripts = [...demo.matchAll(/<script src="(\/demo\/js\/[^"]+)"/g)].map((m) => m[1]);
+    const served = await Promise.all(demoScripts.map((p) => req(p)));
+    check('every script the sandbox loads is served without sign-in', demoScripts.length > 30 && served.every((x) => x.status === 200), served.map((x, i) => `${x.status} ${demoScripts[i]}`).filter((l) => !l.startsWith('200')).join(', '));
+    r = await req('/demo/js/demo/boot.js');
+    check('with the right type for a script', (r.headers.get('content-type') || '').includes('javascript'), r.headers.get('content-type'));
+    r = await req('/demo/js/auth/login.js');
+    check('but not the sign-in scripts', r.status === 404, `${r.status}`);
+    r = await req('/demo/index.html');
+    check('only the clean /demo URL is the page', r.status === 401, `${r.status}`);
+    r = await req('/static/js/app/store.js');
+    check('opening the sandbox does not open the app\'s own scripts', r.status === 401);
+
     const stranger = await signIn('stranger@example.com');
     check('a stranger gets the same answer and no link', stranger.status === 202 && stranger.cookie === null, JSON.stringify(stranger));
 
@@ -105,10 +123,36 @@ try {
     const me = await r.json();
     check('/api/me reports the subscription', me.access === true && me.subscription.status === 'active', JSON.stringify(me));
 
+    // Encrypted sync: the vault's statements on real D1 (conditional writes in batches).
+    const sealed = (s) => `v1.${Buffer.from(s).toString('base64url')}`;
+    r = await req('/api/vault', { method: 'PUT', cookie: buyer.cookie, json: { wrappedKey: sealed('key'), baseKeyVersion: 0 } });
+    const vault = r.status === 200 ? (await r.json()).vault : null;
+    check('a vault is created', vault && vault.keyVersion === 1, `${r.status}`);
+    const putItem = (id, baseVersion, data) => req(`/api/vault/items/${id}`, { method: 'PUT', cookie: buyer.cookie, json: { vaultId: vault.id, baseVersion, data } });
+    r = await putItem('p_1', 0, sealed('plan'));
+    check('an item is written', r.status === 200 && (await r.json()).item.version === 1, `${r.status}`);
+    r = await putItem('p_1', 0, sealed('again'));
+    check('a stale write is refused with the current item', r.status === 409 && (await r.json()).current.version === 1, `${r.status}`);
+    r = await putItem('p_1', 1, sealed('edit'));
+    check('a current write is accepted', r.status === 200, `${r.status}`);
+    r = await req(`/api/vault/items?vault=${vault.id}&since=0`, { cookie: buyer.cookie });
+    const pulled = await r.json();
+    check('a pull returns the latest copy', pulled.items?.length === 1 && pulled.items[0].data === sealed('edit') && pulled.cursor >= pulled.items[0].seq, JSON.stringify(pulled));
+    r = await req('/api/vault', { method: 'DELETE', cookie: buyer.cookie, json: { vaultId: vault.id } });
+    const erased = await (await req('/api/vault', { cookie: buyer.cookie })).json();
+    check('erasing removes the vault', r.status === 200 && erased.vault === null, `${r.status} ${JSON.stringify(erased)}`);
+
     await sleep(1100);
     r = await webhook(sub('canceled', 'subscription.canceled'));
     r = await req('/', { cookie: buyer.cookie });
     check('after cancellation the app closes at once', r.status === 302 && r.headers.get('location') === '/auth/inactive', `${r.status}`);
+    r = await req('/api/vault', { cookie: buyer.cookie });
+    const lapsedVault = r.status === 200 ? await r.json() : {};
+    check('the vault can still be read, to export it', r.status === 200 && lapsedVault.access === false, `${r.status}`);
+    r = await req('/api/vault', { method: 'PUT', cookie: buyer.cookie, json: { wrappedKey: sealed('key'), baseKeyVersion: 0 } });
+    check('but not changed', r.status === 403, `${r.status}`);
+    r = await req('/export');
+    check('the export page is reachable', r.status === 200 && (await r.text()).includes('/demo/js/shell/export-page.js'));
     r = await req('/auth/inactive');
     check('the inactive page is reachable', r.status === 200);
     r = await req('/api/auth/logout', { method: 'POST', cookie: buyer.cookie, json: {} });

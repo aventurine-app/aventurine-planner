@@ -6,13 +6,17 @@
 //   index.html   the app's page (assemble.js)
 //   auth/        the sign-in pages: login.html, confirm.html, inactive.html
 //   static/      the app's CSS, JS, fonts and icons, as they are
+//   demo/        the free sandbox: index.html, and js/, a copy of static/js
+//                (without the sign-in scripts) that the worker serves to anyone
+//   export/      index.html: the export page for lapsed subscribers, which
+//                runs from demo/js/ too
 //
 // There is no bundling or minifying: the app is plain scripts served as
 // written. Run it with `npm run build`.
 
 const fs = require('fs');
 const path = require('path');
-const { assemblePage, authPageNames, readVersion, APP_ROOT, STATIC_DIR } = require('./assemble');
+const { assemblePage, assembleDemoPage, assembleExportPage, authPageNames, readVersion, APP_ROOT, STATIC_DIR } = require('./assemble');
 
 const DIST_DIR = path.join(APP_ROOT, 'dist');
 
@@ -30,6 +34,22 @@ function build({ outDir = DIST_DIR } = {}) {
     fs.cpSync(STATIC_DIR, path.join(outDir, 'static'), {
         recursive: true,
         filter: (src) => !SKIPPED.has(path.relative(STATIC_DIR, src)),
+    });
+    buildDemo(outDir);
+    fs.mkdirSync(path.join(outDir, 'export'));
+    fs.writeFileSync(path.join(outDir, 'export', 'index.html'), assembleExportPage());
+}
+
+/** The free sandbox: its page, and the scripts it loads from /demo/js/. */
+function buildDemo(outDir) {
+    const demoDir = path.join(outDir, 'demo');
+    fs.mkdirSync(demoDir);
+    fs.writeFileSync(path.join(demoDir, 'index.html'), assembleDemoPage());
+    // The sign-in scripts are not part of the sandbox.
+    const authJs = path.join(STATIC_DIR, 'js', 'auth');
+    fs.cpSync(path.join(STATIC_DIR, 'js'), path.join(demoDir, 'js'), {
+        recursive: true,
+        filter: (src) => src !== authJs,
     });
 }
 

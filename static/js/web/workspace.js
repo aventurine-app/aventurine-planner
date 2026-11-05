@@ -24,6 +24,7 @@
 // and importing an older plan file adds its goals the same way.
 //
 // `storage` is { load() -> { plans, meta, goals }, write({ put, remove, meta, goals }) }.
+// `maxPlans` caps how many plans there can be (the free sandbox allows one).
 // Dual-environment: window.PrismWeb.createWorkspace in the page, CommonJS for
 // tests, which pass an in-memory storage.
 
@@ -49,7 +50,7 @@
             : new ApiError('browser storage failed', 500);
     }
 
-    function createWorkspace({ storage, clock = () => new Date(), logger = console }) {
+    function createWorkspace({ storage, clock = () => new Date(), logger = console, maxPlans = MAX_PLANS }) {
         const plans = new Map();
         let order = [];
         let active = null;
@@ -164,15 +165,17 @@
 
         // ── Writes ─────────────────────────────────────────────────────────
 
-        async function addPlan(raw) {
+        /** Add a plan at the end of the order. It becomes the open plan unless
+         *  `activate` is false (sync keeping a copy of a conflicting edit). */
+        async function addPlan(raw, { activate = true } = {}) {
             const plan = validated(raw);
-            if (plans.size >= MAX_PLANS) throw new ApiError(`at most ${MAX_PLANS} plans`, 409);
+            if (plans.size >= maxPlans) throw new ApiError(`at most ${maxPlans} ${maxPlans === 1 ? 'plan' : 'plans'}`, 409);
             if (plans.has(plan.id)) throw new ApiError('plan already exists', 409);
             plan.updatedAt = stamp();
             const prevActive = active;
             plans.set(plan.id, plan);
             order.push(plan.id);
-            active = plan.id;
+            if (activate || !active) active = plan.id;
             await persist({ put: [plan], meta: tabMeta() }, () => {
                 plans.delete(plan.id);
                 order = order.filter((id) => id !== plan.id);
@@ -189,6 +192,45 @@
             const merged = goalsUnreadable ? goals : Plan.mergeGoals(goals, legacyOf(raw));
             if (merged.length !== goals.length) await putGoals(merged);
             return plan;
+        }
+
+        /**
+         * Add every plan of an every-plan file (Download All), and its goals
+         * that the list does not hold yet, in one write: all of them or none.
+         * Refused (409) if they would not fit, so nothing is half imported.
+         * Ids are regenerated, as for one plan.
+         */
+        async function importPlans({ plans: raws, goals: rawGoals }) {
+            if (!raws.length) throw new ApiError('the file holds no plans', 422);
+            const added = raws.map((raw) => Plan.cloneWithNewIds(validated(raw)));
+            const room = maxPlans - plans.size;
+            if (added.length > room) {
+                throw new ApiError(`the file holds ${added.length} plans and there is room for ${room}`, 409);
+            }
+            let incoming = raws.flatMap((raw) => legacyOf(raw));
+            if (rawGoals) {
+                try {
+                    incoming = [...Plan.validateGoals(rawGoals), ...incoming];
+                } catch (e) {
+                    if (e instanceof Plan.PlanError) throw new ApiError(`the file's goals: ${e.message}`, 422);
+                    throw e;
+                }
+            }
+            const nextGoals = goalsUnreadable ? null : Plan.mergeGoals(goals, incoming);
+
+            const now = stamp();
+            for (const p of added) p.updatedAt = now;
+            const prev = { order, active, goals };
+            for (const p of added) plans.set(p.id, p);
+            order = [...order, ...added.map((p) => p.id)];
+            active = added[0].id;
+            const goalsChanged = nextGoals && nextGoals.length !== goals.length;
+            if (goalsChanged) goals = nextGoals;
+            await persist({ put: added, meta: tabMeta(), ...(goalsChanged ? { goals } : {}) }, () => {
+                for (const p of added) plans.delete(p.id);
+                ({ order, active, goals } = prev);
+            });
+            return { plans: added, goals };
         }
 
         /** Replace the goal list. Refused while stored goals could not be
@@ -255,7 +297,63 @@
             return result;
         }
 
-        return { init, status, listPlans, getPlan, addPlan, importPlan, putPlan, deletePlan, setTabs, getGoals, putGoals };
+        // ── Changes from another device (web/sync.js) ──────────────────────
+
+        /** May the goals be sent? Not while they are a newer build's. */
+        const canSyncGoals = () => !goalsUnreadable;
+
+        /**
+         * Take what another device changed: { put: [plan], remove: [id],
+         * order: [id], goals: [goal] }, each part optional. Stored with
+         * `remote: true`, so sync does not send it back. A plan this build
+         * cannot read is stored as it came but left out of memory, like one
+         * found at startup; so are goals. The order is the other device's,
+         * with any plan it does not mention kept at the end.
+         * Resolves { plans: [plan], removed: [id], order, active, goals|null }.
+         */
+        async function applyRemote({ put = [], remove = [], order: nextOrder = null, goals: nextGoals = null }) {
+            const changed = [];
+            const kept = [];
+            for (const raw of put) {
+                let plan;
+                try {
+                    plan = Plan.validatePlan(raw);
+                } catch (e) {
+                    unreadable += 1;
+                    logger.warn('[workspace] a synced plan was left unread:', e.message);
+                    kept.push(raw);
+                    continue;
+                }
+                if (!plans.has(plan.id)) order.push(plan.id);
+                plans.set(plan.id, plan);
+                changed.push(plan);
+            }
+            const removed = remove.filter((id) => plans.delete(id));
+            order = order.filter((id) => plans.has(id));
+            if (nextOrder) {
+                const known = [...new Set(nextOrder)].filter((id) => plans.has(id));
+                order = [...known, ...order.filter((id) => !known.includes(id))];
+            }
+            if (!order.includes(active)) active = order[0] || null;
+            if (nextGoals) {
+                try {
+                    goals = Plan.validateGoals(nextGoals);
+                    goalsUnreadable = false;
+                } catch (e) {
+                    goalsUnreadable = true;
+                    logger.warn('[workspace] synced goals were left unread:', e.message);
+                }
+            }
+            await storage.write({
+                put: [...changed, ...kept], remove, meta: tabMeta(), goals: nextGoals, remote: true,
+            });
+            return { plans: changed, removed, order: order.slice(), active, goals: nextGoals && !goalsUnreadable ? goals : null };
+        }
+
+        return {
+            init, status, listPlans, getPlan, addPlan, importPlan, importPlans, putPlan, deletePlan, setTabs, getGoals, putGoals,
+            canSyncGoals, applyRemote,
+        };
     }
 
     return { createWorkspace, MAX_PLANS };

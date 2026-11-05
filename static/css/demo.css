@@ -1,0 +1,68 @@
+/* ============================================================================
+   demo.css — what only the free sandbox adds to the top bar (js/demo/sandbox.js):
+   a meter of its limits and a button to the full app. The bar is black in both
+   themes, so these use light inks of their own, as titlebar.css does.
+   ============================================================================ */
+
+:root {
+    --sandbox-warn: #ffd666;        /* gold-4 on black: 12:1 */
+}
+
+.sandbox-center {
+    /* Centred on the bar itself, not on the space left between its other parts. */
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: var(--space-24);
+}
+
+.sandbox-meter {
+    display: flex;
+    align-items: center;
+    gap: var(--space-16);
+    color: var(--titlebar-ink);
+    font-size: var(--font-size);
+    white-space: nowrap;
+}
+
+/* How much of each limit is used. At the limit the figure turns gold; the
+   figure itself ("1/1") says the same, so colour is not the only signal. */
+.sandbox-cap-count {
+    margin-left: var(--space-4);
+    color: var(--titlebar-ink-strong);
+    font-weight: var(--font-weight-strong);
+    font-variant-numeric: tabular-nums;
+}
+.sandbox-cap[data-state="full"] .sandbox-cap-count { color: var(--sandbox-warn); }
+
+/* The one call to action on the bar: a light button on the black. */
+.sandbox-cta {
+    display: inline-flex;
+    align-items: center;
+    height: var(--control-height);
+    padding: 0 var(--space-12);
+    border-radius: var(--border-radius);
+    background: #fff;
+    color: #000;
+    font-size: var(--font-size);
+    font-weight: var(--font-weight-strong);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background var(--motion-duration-mid) var(--motion-ease-in-out);
+}
+.sandbox-cta:hover { background: rgba(255, 255, 255, 0.85); }
+.sandbox-cta:active { background: rgba(255, 255, 255, 0.7); }
+.sandbox-cta:focus-visible { outline: 4px solid rgba(255, 255, 255, 0.4); outline-offset: 2px; }
+
+/* Narrow windows: the figures go first, the button stays in the middle. */
+@media (max-width: 1100px) {
+    .sandbox-meter { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .sandbox-cta { transition: none; }
+}

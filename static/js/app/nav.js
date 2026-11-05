@@ -106,7 +106,7 @@
             { label: 'Open', icon: 'arrow-right', onSelect: () => openPlan(id) },
             { label: 'Rename', icon: 'pencil-simple', onSelect: () => startRename(id) },
             { label: 'Duplicate', icon: 'copy', onSelect: () => Store.duplicatePlan(id) },
-            { label: 'Export…', icon: 'export', onSelect: () => Store.exportPlan(id) },
+            { label: 'Export…', icon: 'export', onSelect: () => ExportMenu.plan(id) },
             'sep',
             { label: 'Delete', icon: 'trash', danger: true, onSelect: () => confirmDelete(id) },
         ]);

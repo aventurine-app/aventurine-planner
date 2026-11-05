@@ -24,6 +24,7 @@
     const D = window.Describe;
     const P = window.CitrinePlan;
     const G = window.CitrineGoals;
+    const S = window.CitrineSummary;
     const K = window.Components;
 
     const root = document.getElementById('outlook');
@@ -153,24 +154,8 @@
 
     // ── Figures ────────────────────────────────────────────────────────────
 
-    /** The run's headline figures, in the money shown. */
-    function figures(res, def) {
-        const n = res.months;
-        const F = res.flows;
-        const sum = (fn) => { let s = 0; for (let m = 0; m < n; m++) s += fn(m) * def[m + 1]; return s; };
-        const start = res.netWorth[0] * def[0];
-        const end = res.netWorth[n] * def[n];
-        return {
-            end, change: end - start,
-            takeHome: sum((m) => F.earned[m] - F.withheld[m]),
-            spent: sum((m) => F.spent[m] + F.skimmed[m]),
-            growth: sum((m) => F.growth[m]),
-            interest: sum((m) => F.interest[m]),
-        };
-    }
-
     function renderStats(plan, res, def) {
-        const f = figures(res, def);
+        const f = S.headline(res, def);
         statsEl.innerHTML = [
             K.statCard({ title: `Net worth, ${label(plan, res.months)}`, value: money(f.end), tone: f.end < -0.5 ? 'down' : '' }),
             K.statCard({ title: 'Change', value: money(f.change, { sign: true }), tone: f.change >= 0 ? 'up' : 'down' }),
@@ -431,34 +416,14 @@
             <span>${esc(name)}</span><span class="sort-caret" aria-hidden="true">${iconSvg('caret-up')}${iconSvg('caret-down')}</span></button></th>`;
     }
 
-    /** A row per plan year: what it brought in and spent, what grew and what
-     *  interest cost, and the net worth it ended on. */
+    /** A row per plan year (CitrineSummary.years), in the table's sort. */
     function yearRows(plan, res, def) {
-        const n = res.months;
-        const F = res.flows;
-        const hasAge = plan.settings.age != null;
-        const rows = [];
-        for (let from = 0, y = 0; from < n; from += 12, y++) {
-            const to = Math.min(n, from + 12);
-            const sum = (fn) => { let s = 0; for (let m = from; m < to; m++) s += fn(m) * def[m + 1]; return s; };
-            const start = res.netWorth[from] * def[from];
-            const end = res.netWorth[to] * def[to];
-            rows.push({
-                year: y + 1, from,
-                age: hasAge ? P.ageAt(plan, P.ymAdd(plan.settings.start, from)) : null,
-                takeHome: sum((m) => F.earned[m] - F.withheld[m]),
-                spent: sum((m) => F.spent[m] + F.skimmed[m]),
-                growth: sum((m) => F.growth[m]),
-                interest: sum((m) => F.interest[m]),
-                change: end - start,
-                worth: end,
-            });
-        }
+        const rows = S.years(plan, res, def);
         if (yearSort.key) {
             const k = yearSort.key;
             rows.sort((a, b) => (yearSort.dir === 'asc' ? a[k] - b[k] : b[k] - a[k]));
         }
-        return { rows, hasAge };
+        return { rows, hasAge: plan.settings.age != null };
     }
 
     function yearTable(plan, res, def) {

@@ -15,6 +15,8 @@
 //   Store.editGoals(fn) the same for the goal list every plan shares.
 //   Store.setWorkspace  'plans' (the builder), 'goals', 'analyze' or 'compare'.
 //                       A preference of this browser, not part of any plan.
+//   Store.applyRemote   another device's changes, from encrypted sync (web/sync.js)
+//   Store.setSync       sync's state, for the top bar
 //
 // Undo follows the workspace: in Goals it steps through goal edits, anywhere
 // else through the active plan's.
@@ -48,6 +50,8 @@
         results: null,
         scrub: null,            // month index under the chart cursor
         save: 'saved',          // 'saved' | 'saving' | 'error'
+        sync: 'off',            // 'off' | 'synced' | 'offline' | 'error' (web/sync.js)
+        syncProblem: null,      // with 'error': 'vault_changed' | 'signed_out' | 'vault_full' | 'server'
     };
 
     const plans = new Map();     // id → plan document
@@ -370,6 +374,96 @@
         if (document.visibilityState === 'hidden') flush();
     });
 
+    // ── Encrypted sync ─────────────────────────────────────────────────────
+    // web/sync.js runs under the backend; these are how it reaches the page.
+
+    let booted = false;
+    const waitingNotices = [];
+    // Problems that stop sync until the page is reloaded: said once, with a way out.
+    const LASTING = {
+        vault_changed: 'Sync stopped: the recovery key was changed or reset on another device. Reload to enter it.',
+        signed_out: 'Sync stopped: you were signed out. Reload to sign in again.',
+    };
+
+    /** 'syncing' leaves the bar as it is, so it does not flicker on every check. */
+    function setSync(status, problem = null) {
+        if (status === 'syncing') return;
+        const next = status === 'error' ? problem : null;
+        if (status === state.sync && next === state.syncProblem) return;
+        state.sync = status;
+        state.syncProblem = next;
+        emit('save');
+        if (LASTING[next]) {
+            UI.toast(LASTING[next], { type: 'error', duration: 600000, action: { label: 'Reload', onClick: () => location.reload() } });
+        }
+    }
+
+    /**
+     * Take another device's changes: { plans, removed, order, goals, notices }.
+     * A plan or the goals with an edit here not yet saved keep that edit: it is
+     * saved next and so wins. Undo history for what changed is dropped, since
+     * undoing would take back the other device's change.
+     */
+    function applyRemote({ plans: docs = [], removed = [], order = null, goals = null, notices = [] }) {
+        if (!booted) {
+            // Before the plans are on screen the page loads them all anyway; only notices wait.
+            waitingNotices.push(...notices);
+            return;
+        }
+        for (const doc of docs) {
+            if (dirty.has(doc.id)) continue;
+            plans.set(doc.id, doc);
+            history.delete(doc.id);
+            if (doc.id === state.activeId) {
+                state.plan = doc;
+                pruneSelection();
+                queueSimulation();
+                emit('plan');
+            }
+        }
+        for (const id of removed) {
+            plans.delete(id);
+            history.delete(id);
+            dirty.delete(id);
+        }
+        if (order) state.tabs = order.filter((id) => plans.has(id));
+        if (goals && !dirty.has(GOALS)) {
+            state.goals = goals;
+            history.delete(GOALS);
+            pruneSelection();
+            emit('goals');
+        }
+        emit('tabs');
+        if (state.activeId && !plans.has(state.activeId)) {
+            // The open plan was deleted on another device.
+            state.activeId = null;
+            state.plan = null;
+            (state.tabs.length ? openPlan(state.tabs[0]) : newPlan())
+                .catch((e) => console.error('[store] no plan could be opened', e));
+        }
+        showNotices(notices);
+    }
+
+    function showNotices(notices) {
+        for (const message of notices) UI.toast(message, { type: 'warning', duration: 12000 });
+    }
+
+    // ── Limits ─────────────────────────────────────────────────────────────
+
+    const LIMIT_WORDS = {
+        plans:   (n) => `You can have at most ${n} plan${n === 1 ? '' : 's'}.`,
+        modules: (n) => `A plan holds at most ${n} module${n === 1 ? '' : 's'}.`,
+        links:   (n) => `A plan holds at most ${n} link${n === 1 ? '' : 's'}.`,
+        goals:   (n) => `You can set at most ${n} goal${n === 1 ? '' : 's'}.`,
+    };
+
+    /** Tell the user a cap stopped them. `kind` is plans, modules, links or
+     *  goals. The free sandbox (demo/limits.js) adds a button to the full app. */
+    function limitReached(kind, max) {
+        const extra = window.PrismDemo ? window.PrismDemo.limitToast : null;
+        UI.toast(LIMIT_WORDS[kind](max), { type: 'error', ...extra });
+    }
+
     // ── Plans (tabs) ───────────────────────────────────────────────────────
 
     const planName = (id) => (plans.get(id) || {}).name || 'Plan';
@@ -406,8 +500,9 @@
     async function addPlan(doc) {
         const r = await api('POST', '/api/plans', { plan: doc });
         if (!r.ok) {
-            const cap = /^at most (\d+) plans$/.exec(r.body.error || '');
-            UI.toast(cap ? `You can have at most ${cap[1]} plans.` : 'The plan could not be created.', { type: 'error' });
+            const cap = /^at most (\d+) plans?$/.exec(r.body.error || '');
+            if (cap) limitReached('plans', Number(cap[1]));
+            else UI.toast('The plan could not be created.', { type: 'error' });
             return null;
         }
         plans.set(r.body.plan.id, r.body.plan);
@@ -424,7 +519,9 @@
 
     function newPlan() {
         const start = state.plan ? state.plan.settings.start : P.ymNow();
-        return addPlan(P.createPlan({ name: uniqueName('Untitled plan'), start }));
+        // The free sandbox names its plan (demo/limits.js).
+        const base = window.PrismDemo ? window.PrismDemo.PLAN_NAME : 'Untitled plan';
+        return addPlan(P.createPlan({ name: uniqueName(base), start }));
     }
 
     async function duplicatePlan(id) {
@@ -482,20 +579,33 @@
             return null;
         }
         if (r.body.canceled) return null;
-        plans.set(r.body.plan.id, r.body.plan);
-        state.tabs.push(r.body.plan.id);
-        await openPlan(r.body.plan.id);
-        // An older plan file may have brought goals of its own into the shared list.
+        // A one-plan file answers { plan }; Download All's file { plans }.
+        const added = r.body.plans || [r.body.plan];
+        for (const plan of added) {
+            plans.set(plan.id, plan);
+            state.tabs.push(plan.id);
+        }
+        await openPlan(added[0].id);
+        // The file may have brought goals into the shared list.
         await loadGoals().catch((e) => console.error('[store] goals could not be reloaded', e));
-        UI.toast(`Imported ${r.body.plan.name}.`, { type: 'success' });
-        return r.body.plan;
+        UI.toast(added.length === 1 ? `Imported ${added[0].name}.` : `Imported ${added.length} plans.`, { type: 'success' });
+        return added[0];
     }
 
-    async function exportPlan(id) {
+    /** Save one plan as a file: `format` 'json' (the plan file) or 'csv' (month by month). */
+    async function exportPlan(id, format = 'json') {
         await flush();
-        const r = await api('POST', `/api/plans/${encodeURIComponent(id)}/export`);
+        const r = await api('POST', `/api/plans/${encodeURIComponent(id)}/export`, { format });
         if (!r.ok) UI.toast('The plan could not be exported.', { type: 'error' });
         else if (!r.body.canceled) UI.toast('Plan exported.', { type: 'success' });
+    }
+
+    /** Download All: every plan and the goals, as one zip. */
+    async function exportAll() {
+        await flush();
+        const r = await api('POST', '/api/export');
+        if (!r.ok) UI.toast('Your plans could not be exported.', { type: 'error' });
+        else if (!r.body.canceled) UI.toast('Plans exported.', { type: 'success' });
     }
 
     /** Load the tabs and open the active plan. A fresh install gets a blank
@@ -523,6 +633,8 @@
             if (signedIn) setWorkspace('plans');
             await openPlan(signedIn ? state.tabs[0] : (r.body.active || state.tabs[0]));
         }
+        booted = true;
+        showNotices(waitingNotices.splice(0));
         return true;
     }
 
@@ -536,7 +648,7 @@
         let created = null;
         edit((plan) => {
             if (plan.nodes.length >= P.LIMITS.nodes) {
-                UI.toast(`A plan holds at most ${P.LIMITS.nodes} modules.`, { type: 'error' });
+                limitReached('modules', P.LIMITS.nodes);
                 return false;
             }
             created = P.createNode(plan, presetId, x, y);
@@ -578,11 +690,11 @@
         const made = [];
         edit((plan) => {
             if (plan.nodes.length + snap.nodes.length > P.LIMITS.nodes) {
-                UI.toast(`A plan holds at most ${P.LIMITS.nodes} modules.`, { type: 'error' });
+                limitReached('modules', P.LIMITS.nodes);
                 return false;
             }
             if (plan.links.length + snap.links.length > P.LIMITS.links) {
-                UI.toast(`A plan holds at most ${P.LIMITS.links} links.`, { type: 'error' });
+                limitReached('links', P.LIMITS.links);
                 return false;
             }
             for (const src of snap.nodes) {
@@ -676,7 +788,7 @@
         let created = null;
         editGoals((goals) => {
             if (goals.length >= P.LIMITS.goals) {
-                UI.toast(`You can set at most ${P.LIMITS.goals} goals.`, { type: 'error' });
+                limitReached('goals', P.LIMITS.goals);
                 return false;
             }
             created = P.createGoal({ color: nextGoalColor(), ...fields });
@@ -704,9 +816,10 @@
 
     window.Store = {
         state, on, edit, beginGesture, gestureMove, endGesture, undo, redo, canUndo, canRedo,
-        select, setScrub, setView, flush, boot, openPlan, newPlan, addPlan, duplicatePlan,
-        renamePlan, deletePlan, reorderTabs, importPlan, exportPlan, planName, getPlan,
+        select, setScrub, setView, flush, boot, limitReached, openPlan, newPlan, addPlan, duplicatePlan,
+        renamePlan, deletePlan, reorderTabs, importPlan, exportPlan, exportAll, planName, getPlan,
         node, link, previewPreset, setPreviewIcon, addNode, duplicateNode, copyNodes, pasteNodes, removeNode, removeNodes,
         connect, reconnect, removeLink, goal, editGoals, addGoal, nextGoalColor, removeGoal, setWorkspace,
+        applyRemote, setSync,
     };
 }());

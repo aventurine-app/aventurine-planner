@@ -232,7 +232,7 @@
         // A 401(k) is the pre-tax account an employer adds to; every other
         // tax-advantaged account (IRA, HSA, 529) is one module whose
         // Contributions setting says which.
-        P('accounts', 'account', '401k', '401(k)', 'piggy-bank', {
+        P('accounts', 'account', '401k', 'Retirement Account', 'piggy-bank', {
             pretax: true,
             employerMatch: true,
             fields: ['balance', 'minBalance', 'rate', 'lockUntil', 'capYearly', 'match', 'matchLimit'],

@@ -2,6 +2,7 @@
 
 // ─── dev-server.js ──────────────────────────────────────────────────────────
 // Serves the web app from source for development: the assembled page at /, the
+// free sandbox at /demo (its scripts at /demo/js/, which are static/js/), the
 // sign-in pages at /auth/<name> (to see them; there is no sign-in here), and
 // everything under static/ at /static/. Nothing is cached, so an edit shows on
 // reload with no build. Listens on 127.0.0.1 only.
@@ -14,7 +15,7 @@
 const fs = require('fs');
 const http = require('http');
 const path = require('path');
-const { assemblePage, authPageNames, STATIC_DIR } = require('./assemble');
+const { assemblePage, assembleDemoPage, assembleExportPage, authPageNames, STATIC_DIR } = require('./assemble');
 
 const TYPES = {
     '.html': 'text/html; charset=utf-8',
@@ -68,13 +69,24 @@ function createServer() {
             return;
         }
 
+        if (pathname === '/export') {
+            send(res, 200, TYPES['.html'], assembleExportPage());
+            return;
+        }
+        if (pathname === '/demo' || pathname === '/demo/') {
+            send(res, 200, TYPES['.html'], assembleDemoPage());
+            return;
+        }
+
         const authPage = /^\/auth\/([a-z]+)$/.exec(pathname);
         if (authPage && authPageNames().includes(authPage[1])) {
             send(res, 200, TYPES['.html'], assemblePage({ page: `auth/${authPage[1]}.html` }));
             return;
         }
 
-        const file = pathname.startsWith('/static/') ? safeJoin(STATIC_DIR, pathname.slice('/static/'.length)) : null;
+        let file = null;
+        if (pathname.startsWith('/static/')) file = safeJoin(STATIC_DIR, pathname.slice('/static/'.length));
+        else if (pathname.startsWith('/demo/js/')) file = safeJoin(path.join(STATIC_DIR, 'js'), pathname.slice('/demo/js/'.length));
         fs.readFile(file || '', (err, data) => {
             if (err || !file) {
                 send(res, 404, TYPES['.html'], 'not found');

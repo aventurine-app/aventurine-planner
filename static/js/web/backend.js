@@ -15,20 +15,21 @@
 // would. The workspace therefore never shares an object with the page, and an
 // edit the page makes to its own copy cannot reach stored data unsaved.
 //
-// `files` is { save({ name, text }) -> Promise<boolean>, open() -> Promise<string|null> }
-// (file-dialogs.js). Both resolve false/null when the user cancels.
+// `files` is { save({ name, text | data, kind }) -> Promise<boolean>, open() -> Promise<string|null> }
+// (file-dialogs.js). Both resolve false/null when the user cancels. `kind` is
+// 'plan', 'csv' or 'zip'; `data` is bytes (the zip).
 //
 // Dual-environment: window.PrismWeb.createBackend in the page, CommonJS for tests.
 
 (function (root, factory) {
     const isNode = typeof module === 'object' && module.exports;
     const web = isNode
-        ? { ...require('./api-error.js'), ...require('./plan-files.js') }
+        ? { ...require('./api-error.js'), ...require('./plan-files.js'), ...require('./exports.js') }
         : root.PrismWeb;
-    const api = factory(web.ApiError, web.PlanFiles);
+    const api = factory(web.ApiError, web.PlanFiles, web.Exports);
     if (isNode) module.exports = api;
     else root.PrismWeb = Object.assign(root.PrismWeb || {}, api);
-}(typeof self !== 'undefined' ? self : this, function (ApiError, PlanFiles) {
+}(typeof self !== 'undefined' ? self : this, function (ApiError, PlanFiles, Exports) {
 
     function planBody(body) {
         if (!body || typeof body !== 'object' || !body.plan) throw new ApiError('plan required', 400);
@@ -48,16 +49,37 @@
     }
 
     function createBackend({ workspace, files, clone = structuredClone, logger = console }) {
-        async function exportPlan({ params }) {
-            const plan = workspace.getPlan(params.id);
-            const saved = await files.save({ name: PlanFiles.fileName(plan.name), text: PlanFiles.serialize(plan) });
+        // The file is made before the dialog opens: the dialog needs the
+        // click that asked for it, so nothing may be awaited first.
+        const EXPORTS = {
+            json: (plan) => ({ name: PlanFiles.fileName(plan.name), text: PlanFiles.serialize(plan), kind: 'plan' }),
+            csv: (plan) => ({ name: PlanFiles.fileName(plan.name, 'csv'), text: Exports.planCsv(plan, { logger }), kind: 'csv' }),
+        };
+
+        async function exportPlan({ params, body }) {
+            const format = (body && body.format) || 'json';
+            if (!Object.hasOwn(EXPORTS, format)) throw new ApiError('unknown export format', 400);
+            const saved = await files.save(EXPORTS[format](workspace.getPlan(params.id)));
             return saved ? { saved: true } : { canceled: true };
         }
 
+        /** "Download All": every plan, in navigation order, and the goals, as a zip. */
+        async function exportAll() {
+            const plans = workspace.listPlans().order.map((id) => workspace.getPlan(id));
+            const { goals } = workspace.getGoals();
+            const saved = await files.save({ name: Exports.archiveName(), data: Exports.archive({ plans, goals }, { logger }), kind: 'zip' });
+            return saved ? { saved: true } : { canceled: true };
+        }
+
+        /** A one-plan file answers { plan }; an every-plan file { plans, goals }. */
         async function importPlan() {
             const text = await files.open();
             if (text == null) return { canceled: true };
-            return { plan: await workspace.importPlan(PlanFiles.parse(text)) };
+            const contents = PlanFiles.read(text);
+            if (contents.plans.length === 1 && contents.goals == null) {
+                return { plan: await workspace.importPlan(contents.plans[0]) };
+            }
+            return workspace.importPlans(contents);
         }
 
         // Literal segments ('/api/plans/import', '/api/plans/order') are listed
@@ -72,6 +94,7 @@
             ['PUT',    '/api/plans/<id>',         ({ params, body }) => workspace.putPlan(params.id, planBody(body))],
             ['DELETE', '/api/plans/<id>',         ({ params }) => workspace.deletePlan(params.id)],
             ['POST',   '/api/plans/<id>/export',  exportPlan],
+            ['POST',   '/api/export',             exportAll],
             ['GET',    '/api/goals',              () => workspace.getGoals()],
             ['PUT',    '/api/goals',              ({ body }) => workspace.putGoals(body ? body.goals : undefined)],
         ].map(([method, pattern, handler]) => ({ method, handler, ...compile(pattern) }));

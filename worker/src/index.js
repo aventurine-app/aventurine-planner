@@ -5,13 +5,21 @@
 //   /api/paddle/webhook     Paddle only (signature checked)       paddle.js
 //   /api/auth/*, /api/me    sign-in, sign-out, "who am I"         auth.js
 //   /api/billing/portal     a link to Paddle's billing page       config.js
+//   /api/vault, /api/vault/* the user's encrypted plans          vault.js
 //   /auth/*, css, fonts…    public: the sign-in pages and the look
+//   /demo, /demo/js/*       public: the free sandbox (one plan, seven modules,
+//                           one goal) and the scripts it runs
+//   /export                 public page: a lapsed subscriber opens their
+//                           encrypted plans and downloads them (the vault
+//                           lets them read, not write, for 60 days)
 //   everything else         the app itself: only for a session whose email
 //                           has an active subscription            access.js
 //
 // The app's HTML and JavaScript are the product, so they are only ever sent to
-// someone with access. The user's plans never reach this server at all: they
-// live in their browser (see static/js/web/).
+// someone with access, apart from the sandbox, which is the same code without
+// the room or the storage to be used for real. The user's plans reach this
+// server only encrypted in their browser, under a key this server never sees
+// (vault.js); the sandbox's plan never leaves the browser at all.
 //
 // Fail closed: any error on a gated route is a refusal, never a free pass.
 
@@ -24,12 +32,14 @@ import {
 } from './http.js';
 import { handleWebhook } from './paddle.js';
 import { hasCustomer, pruneExpired } from './store.js';
+import { handleVault, isVaultPath, purgeLapsedVaults } from './vault.js';
 
 // Served to anyone: the sign-in pages and what they need to look right. Not
 // the app's scripts.
-const PUBLIC_PREFIXES = ['/static/css/', '/static/fonts/', '/static/icons/', '/static/js/auth/'];
+const PUBLIC_PREFIXES = ['/static/css/', '/static/fonts/', '/static/icons/', '/static/js/auth/', '/demo/js/'];
 const PUBLIC_FILES = new Set(['/static/js/shell/theme-init.js']);
 const AUTH_PAGES = new Set(['login', 'confirm', 'inactive']);
+const DEMO_PAGES = new Set(['/demo', '/demo/']);
 
 export const isPublicAsset = (path) => PUBLIC_FILES.has(path) || PUBLIC_PREFIXES.some((p) => path.startsWith(p));
 
@@ -124,6 +134,8 @@ export function createWorker({ now = Date.now } = {}) {
             return json({ ok: true, url: config.portalUrl });
         }
 
+        if (isVaultPath(path)) return handleVault(request, deps, path);
+
         return json({ ok: false, error: 'not_found' }, 404);
     }
 
@@ -143,6 +155,8 @@ export function createWorker({ now = Date.now } = {}) {
                 ? { response: await asset(request, env, `/auth/${authPage[1]}.html`) }
                 : { response: json({ ok: false, error: 'not_found' }, 404) };
         }
+        if (DEMO_PAGES.has(path)) return { response: await asset(request, env, '/demo/index.html') };
+        if (path === '/export') return { response: await asset(request, env, '/export/index.html'), cache: 'none' };
         if (isPublicAsset(path)) return { response: await asset(request, env, path) };
 
         // Everything else is the app.
@@ -194,10 +208,24 @@ export function createWorker({ now = Date.now } = {}) {
         }
     }
 
+    /** Daily: drop expired sign-in links and sessions, and erase vaults past retention. */
+    async function scheduled(env) {
+        await pruneExpired(env.DB, now());
+        // The complimentary list decides who keeps their vault, so a config
+        // that cannot be read means no erasing today, never erasing blind.
+        let config;
+        try {
+            config = readConfig(env);
+        } catch (e) {
+            console.error('[vault] retention skipped: config:', e.message);
+            return;
+        }
+        await purgeLapsedVaults(env.DB, { now: now(), complimentary: config.complimentary });
+    }
+
     return {
         fetch: fetchHandler,
-        // Daily: drop expired sign-in links and sessions.
-        scheduled: (_event, env, ctx) => ctx.waitUntil(pruneExpired(env.DB, now())),
+        scheduled: (_event, env, ctx) => ctx.waitUntil(scheduled(env)),
     };
 }
 

@@ -69,6 +69,8 @@ export function requireSameOrigin(request, appOrigin) {
 export async function readJsonBody(request, maxBytes = 4096) {
     const type = request.headers.get('Content-Type') || '';
     if (!type.toLowerCase().startsWith('application/json')) throw new HttpError(415, 'unsupported_media_type');
+    // Refuse an oversized body before reading it, when it says how big it is.
+    if (Number(request.headers.get('Content-Length') || 0) > maxBytes) throw new HttpError(413, 'too_large');
     const text = await request.text();
     if (text.length > maxBytes) throw new HttpError(413, 'too_large');
     let body;
