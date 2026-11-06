@@ -56,8 +56,14 @@ EMAIL_FROM = "Aventurine Planner <signin@aventurine-app.com>"
 # expire. From the customer portal settings in Paddle. Public, not a secret.
 # Left empty, only the billing button fails.
 PADDLE_PORTAL_URL = "https://customer-portal.paddle.com/cpl_01m5fpd75bf8123nx8dck5fqjq"
+# Paddle's API, for cancelling a subscription when its owner has their data
+# deleted. https://sandbox-api.paddle.com for a sandbox key.
+PADDLE_API_URL = "https://api.paddle.com"
+# Where the checklist for each deletion goes (worker/PRIVACY.md).
+PRIVACY_EMAIL = "support@aventurine-app.com"
 
 # Secrets (set with `wrangler secret put NAME`, never in this file):
 #   PADDLE_WEBHOOK_SECRET   the notification destination's secret (pdl_ntfset_...)
+#   PADDLE_API_KEY          read customers, read and write subscriptions; nothing else
 #   RESEND_API_KEY          sends the sign-in email
 #   COMPLIMENTARY_EMAILS    optional: emails with free access, comma separated

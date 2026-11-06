@@ -5,6 +5,10 @@ APP_ORIGIN=http://127.0.0.1:8787
 PADDLE_PORTAL_URL=https://sandbox-customer-portal.paddle.com/cpl_replace_me
 # Any value: signs the webhooks you send yourself with curl.
 PADDLE_WEBHOOK_SECRET=pdl_ntfset_local_dev
+# Cancels a subscription when its owner deletes their data. Without a key, such
+# a deletion stays queued. A sandbox key needs the sandbox API.
+# PADDLE_API_KEY=pdl_sdbx_apikey_replace_me
+PADDLE_API_URL=https://sandbox-api.paddle.com
 # Sign in as this address with no purchase. With no RESEND_API_KEY set, the
 # sign-in link is printed in the wrangler console instead of emailed.
 COMPLIMENTARY_EMAILS=you@example.com

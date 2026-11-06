@@ -36,7 +36,7 @@ export const SESSION_TTL_MS = 30 * DAY;
 const MAX_LINKS_PER_WINDOW = 3;
 
 // 32 random bytes as unpadded URL-safe base64 is 43 characters.
-const TOKEN_SHAPE = /^[A-Za-z0-9_-]{43}$/;
+export const TOKEN_SHAPE = /^[A-Za-z0-9_-]{43}$/;
 
 /**
  * Handle "send me a link". `deps` is { db, config, now, defer, rateLimit, sendEmail }.

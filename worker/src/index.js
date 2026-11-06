@@ -6,6 +6,7 @@
 //   /api/auth/*, /api/me    sign-in, sign-out, "who am I"         auth.js
 //   /api/billing/portal     a link to Paddle's billing page       config.js
 //   /api/vault, /api/vault/* the user's encrypted plans          vault.js
+//   /api/privacy/*          see or delete an address's data       privacy.js
 //   /auth/*, css, fonts…    public: the sign-in pages and the look
 //   /demo, /demo/js/*       public: the free sandbox (one plan, seven modules,
 //                           one goal) and the scripts it runs
@@ -30,18 +31,19 @@ import { deletionWarningMessage, sendEmail, sendLoginEmail } from './email.js';
 import {
     HttpError, json, readJsonBody, redirect, requireSameOrigin, sessionCookie, withSecurityHeaders,
 } from './http.js';
-import { handleWebhook } from './paddle.js';
+import { handleWebhook, paddleApi } from './paddle.js';
+import { handlePrivacy, isPrivacyPath, processErasureQueue } from './privacy.js';
 import { hasCustomer, pruneExpired } from './store.js';
 import { handleVault, isVaultPath, purgeLapsedVaults, warnLapsedVaults } from './vault.js';
 
 // Where the deletion warning sends someone to subscribe again.
-const PRICING_URL = 'https://aventurine-app.com/aventurine-planner.html#pricing';
+const PRICING_URL = 'https://aventurine-app.com/#pricing';
 
 // Served to anyone: the sign-in pages and what they need to look right. Not
 // the app's scripts.
 const PUBLIC_PREFIXES = ['/static/css/', '/static/fonts/', '/static/icons/', '/static/js/auth/', '/demo/js/'];
 const PUBLIC_FILES = new Set(['/static/js/shell/theme-init.js']);
-const AUTH_PAGES = new Set(['login', 'confirm', 'inactive']);
+const AUTH_PAGES = new Set(['login', 'confirm', 'inactive', 'privacy']);
 const DEMO_PAGES = new Set(['/demo', '/demo/']);
 
 export const isPublicAsset = (path) => PUBLIC_FILES.has(path) || PUBLIC_PREFIXES.some((p) => path.startsWith(p));
@@ -50,12 +52,27 @@ function clientIp(request) {
     return request.headers.get('CF-Connecting-IP') || 'unknown';
 }
 
+/** Sends `message` to `to`. Local development with no email provider prints it instead. */
+function mailer(env, config) {
+    return async ({ to, message }) => {
+        if (!config.secure && !env.RESEND_API_KEY) {
+            console.log(`[dev] email to ${to}: ${message.subject}\n${message.text}`);
+            return;
+        }
+        await sendEmail({ apiKey: env.RESEND_API_KEY, from: config.emailFrom, to, message });
+    };
+}
+
+const paddleFor = (env, config) => paddleApi({ apiKey: env.PADDLE_API_KEY, baseUrl: config.paddleApiUrl });
+
 export function createWorker({ now = Date.now } = {}) {
     function dependencies(request, env, ctx, config) {
         return {
             db: env.DB,
             config,
             now,
+            mail: mailer(env, config),
+            paddle: paddleFor(env, config),
             defer: (promise) => ctx.waitUntil(promise),
             // The rate-limit binding is optional so local development works without it.
             rateLimit: async (key) => (env.RATE_LIMIT ? (await env.RATE_LIMIT.limit({ key })).success : true),
@@ -80,7 +97,7 @@ export function createWorker({ now = Date.now } = {}) {
         const post = request.method === 'POST';
 
         if (path === '/api/paddle/webhook') {
-            return handleWebhook({ request, db: env.DB, secret: env.PADDLE_WEBHOOK_SECRET, nowMs: now() });
+            return handleWebhook({ request, db: env.DB, secret: env.PADDLE_WEBHOOK_SECRET, nowMs: now(), paddle: deps.paddle });
         }
 
         if (path === '/api/auth/request' && post) {
@@ -138,6 +155,7 @@ export function createWorker({ now = Date.now } = {}) {
         }
 
         if (isVaultPath(path)) return handleVault(request, deps, path);
+        if (isPrivacyPath(path)) return handlePrivacy(request, deps, path, ip);
 
         return json({ ok: false, error: 'not_found' }, 404);
     }
@@ -211,7 +229,7 @@ export function createWorker({ now = Date.now } = {}) {
         }
     }
 
-    /** Daily: drop expired sign-in links and sessions, and erase vaults past retention. */
+    /** Daily: drop expired records, finish queued deletions, and erase vaults past retention. */
     async function scheduled(env) {
         await pruneExpired(env.DB, now());
         // The complimentary list decides who keeps their vault, so a config
@@ -223,15 +241,12 @@ export function createWorker({ now = Date.now } = {}) {
             console.error('[vault] retention skipped: config:', e.message);
             return;
         }
-        const send = async ({ to, deleteOn }) => {
-            const message = deletionWarningMessage({ deleteOn, loginUrl: `${config.appOrigin}/auth/login`, pricingUrl: PRICING_URL });
-            // Local development with no email provider: print it instead, as sign-in links are.
-            if (!config.secure && !env.RESEND_API_KEY) {
-                console.log(`[dev] deletion warning for ${to}: ${message.subject}`);
-                return;
-            }
-            await sendEmail({ apiKey: env.RESEND_API_KEY, from: config.emailFrom, to, message });
-        };
+        const mail = mailer(env, config);
+        await processErasureQueue({ db: env.DB, config, now, mail, paddle: paddleFor(env, config) });
+        const send = ({ to, deleteOn }) => mail({
+            to,
+            message: deletionWarningMessage({ deleteOn, loginUrl: `${config.appOrigin}/auth/login`, pricingUrl: PRICING_URL }),
+        });
         await warnLapsedVaults(env.DB, { now: now(), complimentary: config.complimentary, send });
         await purgeLapsedVaults(env.DB, { now: now(), complimentary: config.complimentary });
     }

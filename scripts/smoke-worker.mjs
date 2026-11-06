@@ -158,6 +158,52 @@ try {
     r = await req('/api/auth/logout', { method: 'POST', cookie: buyer.cookie, json: {} });
     r = await req('/api/me', { cookie: buyer.cookie });
     check('signing out ends the session', r.status === 401);
+
+    // Privacy requests: the deletion is one D1 batch across every table.
+    const person = async (email, n) => {
+        await webhook({ event_id: `evt_c${n}`, event_type: 'customer.created', occurred_at: at(), data: { id: `ctm_0${n}smoke`, email } });
+        await webhook({ ...sub('active', 'subscription.created'), data: { ...sub('active', 'x').data, id: `sub_0${n}smoke`, customer_id: `ctm_0${n}smoke` } });
+        return (await signIn(email)).cookie;
+    };
+    const privacyToken = async (email) => {
+        const before = log.length;
+        await req('/api/privacy/request', { method: 'POST', json: { email } });
+        await sleep(400);
+        return /auth\/privacy#t=([A-Za-z0-9_-]{43})/.exec(log.slice(before))?.[1];
+    };
+    r = await req('/auth/privacy');
+    check('the privacy page is public', r.status === 200 && (await r.text()).includes('/static/js/auth/privacy.js'), `${r.status}`);
+    const strangerToken = await privacyToken('stranger@example.com');
+    r = await req('/api/privacy/report', { method: 'POST', json: { token: strangerToken } });
+    check('a stranger can see that nothing is held', r.status === 200 && (await r.json()).holdsData === false, `${r.status}`);
+
+    const leaver = await person('leaver@example.com', 2);
+    r = await req('/api/vault', { method: 'PUT', cookie: leaver, json: { wrappedKey: sealed('key'), baseKeyVersion: 0 } });
+    const leaverVault = (await r.json()).vault;
+    await req('/api/vault/items/p_1', { method: 'PUT', cookie: leaver, json: { vaultId: leaverVault.id, baseVersion: 0, data: sealed('plan') } });
+    const leaverToken = await privacyToken('leaver@example.com');
+    r = await req('/api/privacy/report', { method: 'POST', json: { token: leaverToken } });
+    const held = await r.json();
+    check('the report lists the subscription and the vault', held.subscriptions?.length === 1 && held.vault?.items === 1, JSON.stringify(held));
+
+    r = await req('/api/privacy/erase', { method: 'POST', cookie: leaver, json: { token: leaverToken, confirm: 'DELETE' } });
+    check('a renewing subscription with no Paddle key holds the deletion back', r.status === 202 && (await r.json()).status === 'pending', `${r.status}`);
+    r = await req('/api/vault', { cookie: leaver });
+    check('so nothing is deleted yet', r.status === 200 && (await r.json()).vault !== null, `${r.status}`);
+
+    await sleep(1100);
+    await webhook({ ...sub('canceled', 'subscription.canceled'), data: { ...sub('canceled', 'x').data, id: 'sub_02smoke', customer_id: 'ctm_02smoke' } });
+    r = await req('/api/privacy/erase', { method: 'POST', cookie: leaver, json: { token: leaverToken, confirm: 'DELETE' } });
+    check('once it is cancelled, the deletion finishes', r.status === 200 && (await r.json()).status === 'done', `${r.status}`);
+    check('and clears the browser that was signed in', r.headers.get('clear-site-data') === '"cookies", "storage"', r.headers.get('clear-site-data'));
+    r = await req('/api/me', { cookie: leaver });
+    check('and ends the session', r.status === 401, `${r.status}`);
+    r = await req('/api/privacy/report', { method: 'POST', json: { token: leaverToken } });
+    check('and spends the link', r.status === 400, `${r.status}`);
+    r = await webhook({ ...sub('canceled', 'subscription.canceled'), data: { ...sub('canceled', 'x').data, id: 'sub_02smoke', customer_id: 'ctm_02smoke' } });
+    check('a late webhook is ignored', r.status === 200 && (await r.json()).ignored === true, `${r.status}`);
+    const again = await signIn('leaver@example.com');
+    check('and the address cannot sign in', again.status === 202 && again.cookie === null, JSON.stringify(again));
 } finally {
     dev.kill('SIGTERM');
     await sleep(500);

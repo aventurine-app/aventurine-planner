@@ -22,12 +22,15 @@ and who is signed in.
 | `/api/vault`, `/api/vault/items[/:id]` | active subscription; reading only, signed in without one | The encrypted plans: the wrapped key, pull changes, conditional writes, erase |
 | `/auth/login`, `/auth/confirm`, `/auth/inactive`, CSS, fonts, icons | public | The sign-in pages and what they need |
 | `/demo`, `/demo/js/*` | public | The free sandbox (one plan, seven modules, one goal) and its copy of the scripts |
+| `/api/privacy/*` | an emailed link, not a session | See, download or delete what is held for an address (`PRIVACY.md`) |
+| `/auth/privacy` | public | The page behind Delete Me on the website |
 | `/export` | public (it asks the vault itself) | The export page: a lapsed subscriber opens their plans with their recovery key and downloads them; runs from `/demo/js/` |
 | everything else (`/`, all app JavaScript) | active subscription | The app |
 
 Code map: `src/index.js` (routes and the access rule's enforcement), `paddle.js`
 (signature, events), `auth.js` (links and sessions), `access.js` (who
-gets in), `vault.js` (encrypted plans and their retention), `store.js` (every
+gets in), `vault.js` (encrypted plans and their retention), `privacy.js`
+(seeing and deleting an address's data), `store.js` (every
 SQL statement), `email.js`, `http.js`, `config.js`, `crypto.js`. Schema:
 `migrations/`.
 
@@ -141,7 +144,13 @@ In the sandbox dashboard:
    prices: monthly ($7.99), monthly with a 14-day trial, and yearly ($74.99).
    Note the `pri_…` ids; the website's pricing buttons need them.
 2. **Developer tools → Authentication → Client-side token**: for Paddle.js on
-   the website's pricing page (not a secret). The worker needs no API key.
+   the website's pricing page (not a secret).
+   **Developer tools → Authentication → API keys**: create one with only
+   `customer.read`, `subscription.read` and `subscription.write`, then
+   `npx wrangler secret put PADDLE_API_KEY --config worker/wrangler.toml`.
+   The worker uses it to cancel a subscription when its owner deletes their
+   data, so without it those deletions wait for you (`PRIVACY.md`). A sandbox key
+   also needs `PADDLE_API_URL` set to `https://sandbox-api.paddle.com`.
 3. **Events → Notifications → New destination** (not under Developer tools):
    - URL: `<APP_ORIGIN>/api/paddle/webhook`
    - Events: `customer.created`, `customer.updated`, and every `subscription.*`
@@ -150,7 +159,7 @@ In the sandbox dashboard:
    - Copy its secret (`pdl_ntfset_…`; later, Events → Notifications → the destination's menu → Edit destination → the copy icon):
      `npx wrangler secret put PADDLE_WEBHOOK_SECRET --config worker/wrangler.toml`
 4. **Checkout → Checkout settings**: set the default payment link to the
-   website's pricing page (`https://aventurine-app.com/aventurine-planner.html`) and approve
+   website's pricing page (`https://aventurine-app.com/#pricing`) and approve
    the website's domain for checkout.
 5. Turn the customer portal on and put its link (`https://…customer-portal.paddle.com/cpl_…`)
    in `PADDLE_PORTAL_URL` in `wrangler.toml`. It is one link for every
@@ -200,10 +209,12 @@ website, and deploy again. Buy once with a real card and refund it.
 - **Sessions** last 30 days and are checked against the database on every
   request, so a cancellation or `logout` takes effect at once. The app that is
   already open in a tab keeps running until it is reloaded, but stops syncing.
-- **Deploying the vault** needs its migrations (0002, 0003) applied first:
+- **Deploying the vault or privacy requests** needs their migrations (0002 to
+  0004) applied first:
   `npx wrangler d1 migrations apply aventurine-prism --remote --config worker/wrangler.toml`.
 - **Rotating a secret.** Paddle lets two webhook secrets overlap; the worker
   accepts a request if any signature matches. Roll the secret in Paddle, then
   `wrangler secret put PADDLE_WEBHOOK_SECRET`.
 - **Rate limits.** Sign-in requests: 10 per minute per IP (the `RATE_LIMIT`
-  binding), and at most 3 links per email per 15 minutes.
+  binding), and at most 3 links per email per 15 minutes. Privacy requests: 10
+  per minute per IP, and at most 3 links per email per day.

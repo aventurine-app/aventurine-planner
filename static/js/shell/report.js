@@ -68,6 +68,11 @@
 
     /** The y scale and its gridlines and labels, for values from lo to hi. */
     function yAxis(lo, hi) {
+        // A sliver on one side of zero (a small card balance under a large net
+        // worth) would add a whole empty tick step; it is drawn against the zero line instead.
+        const span = Math.max(Math.abs(lo), Math.abs(hi));
+        if (lo < 0 && -lo < span * 0.02) lo = 0;
+        if (hi > 0 && hi < span * 0.02) hi = 0;
         const ticks = niceTicks(Math.min(0, lo), Math.max(0, hi));
         const min = ticks[0];
         const max = ticks[ticks.length - 1];

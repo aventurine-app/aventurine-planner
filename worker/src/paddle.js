@@ -11,10 +11,19 @@
 // A subscription event carries only a customer id, never an email, so the two
 // are joined later by customer id. Paddle may deliver events out of order or
 // more than once; store.js applies each only if it is newer than what it holds.
+//
+// Someone who has had their data deleted (privacy.js) must stay deleted, so
+// Paddle's later events about them are dropped, including the cancellation the
+// deletion itself caused. Paying again is the exception. Paddle keeps the same
+// customer and may send no customer event, so the email is fetched from its API.
+//
+// The API is only used for those two things: cancelling a subscription and
+// looking up a customer's email. It needs PADDLE_API_KEY.
 
-import { hmacSha256Hex, timingSafeEqual } from './crypto.js';
+import { ACCESS_STATUSES } from './access.js';
+import { hmacSha256Hex, sha256Hex, timingSafeEqual } from './crypto.js';
 import { normalizeEmail } from './email-address.js';
-import { upsertCustomer, upsertSubscription } from './store.js';
+import { erasedAt, forgetErased, hasCustomerId, upsertCustomer, upsertSubscription } from './store.js';
 import { json } from './http.js';
 
 const MAX_BODY_BYTES = 512 * 1024;
@@ -105,8 +114,69 @@ export function parseEvent(event) {
     };
 }
 
+// ── API ─────────────────────────────────────────────────────────────────────
+
+export class PaddleApiError extends Error {}
+
+/** Paddle's API. `enabled` is false until PADDLE_API_KEY is set, and calls then throw. */
+export function paddleApi({ apiKey, baseUrl, fetchImpl = fetch }) {
+    const enabled = Boolean(apiKey && baseUrl);
+
+    async function call(method, path, body) {
+        if (!enabled) throw new PaddleApiError('PADDLE_API_KEY is not set');
+        const response = await fetchImpl(`${baseUrl}${path}`, {
+            method,
+            headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+            body: body ? JSON.stringify(body) : undefined,
+            signal: AbortSignal.timeout(8000),
+        });
+        return { ok: response.ok, status: response.status, body: await response.json().catch(() => null) };
+    }
+
+    return {
+        enabled,
+
+        /** Stop a subscription now. Throws unless it ends up cancelled. */
+        async cancelSubscription(id) {
+            const cancel = await call('POST', `/subscriptions/${id}/cancel`, { effective_from: 'immediately' });
+            if (cancel.ok) return;
+            // Our copy can lag behind Paddle, and cancelling twice is an error.
+            const current = await call('GET', `/subscriptions/${id}`);
+            if (current.body?.data?.status === 'canceled') return;
+            throw new PaddleApiError(`Paddle answered ${cancel.status} when cancelling ${id}`);
+        },
+
+        /** The email Paddle holds for a customer, or null. */
+        async customerEmail(id) {
+            const customer = await call('GET', `/customers/${id}`);
+            if (!customer.ok) throw new PaddleApiError(`Paddle answered ${customer.status} for ${id}`);
+            return normalizeEmail(customer.body?.data?.email);
+        },
+    };
+}
+
+// ── Webhook ─────────────────────────────────────────────────────────────────
+
+/** Does this event show someone who was erased paying for access again? */
+const isReturning = (change, erased) => change.kind === 'subscription'
+    && ACCESS_STATUSES.has(change.status)
+    && change.cancelAt == null
+    && change.occurredAt > erased;
+
+/** A paying subscription with no customer row cannot sign in. Fetch the customer. */
+async function restoreCustomer({ db, paddle, change, logger }) {
+    if (!paddle.enabled || await hasCustomerId(db, change.customerId)) return;
+    try {
+        const email = await paddle.customerEmail(change.customerId);
+        if (email) await upsertCustomer(db, { id: change.customerId, email, occurredAt: change.occurredAt });
+    } catch (e) {
+        // Paddle's own customer event may still arrive, so the subscription stands.
+        logger.error(`[paddle] could not look up a customer: ${e.message}`);
+    }
+}
+
 /** The webhook endpoint. Answers 200 only once the event is safely stored. */
-export async function handleWebhook({ request, db, secret, nowMs, logger = console }) {
+export async function handleWebhook({ request, db, secret, nowMs, paddle, logger = console }) {
     if (request.method !== 'POST') return json({ ok: false, error: 'method_not_allowed' }, 405, { Allow: 'POST' });
     const declared = Number(request.headers.get('Content-Length') || 0);
     if (declared > MAX_BODY_BYTES) return json({ ok: false, error: 'too_large' }, 413);
@@ -129,7 +199,18 @@ export async function handleWebhook({ request, db, secret, nowMs, logger = conso
     }
     if (!change) return json({ ok: true, ignored: true });
 
-    if (change.kind === 'customer') await upsertCustomer(db, change);
-    else await upsertSubscription(db, change);
+    const customerHash = await sha256Hex(change.kind === 'customer' ? change.id : change.customerId);
+    const erased = await erasedAt(db, customerHash);
+    if (erased !== null) {
+        if (!isReturning(change, erased)) return json({ ok: true, ignored: true });
+        await forgetErased(db, customerHash);
+    }
+
+    if (change.kind === 'customer') {
+        await upsertCustomer(db, change);
+    } else {
+        await upsertSubscription(db, change);
+        if (ACCESS_STATUSES.has(change.status)) await restoreCustomer({ db, paddle, change, logger });
+    }
     return json({ ok: true });
 }

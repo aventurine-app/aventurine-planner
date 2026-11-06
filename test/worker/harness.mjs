@@ -17,6 +17,8 @@ export const ORIGIN = 'https://app.example.test';
 export const WEBHOOK_SECRET = 'pdl_ntfset_test_secret';
 export const PORTAL_URL = 'https://sandbox-customer-portal.paddle.com/cpl_01test';
 export const OWNER = 'owner@example.test';
+export const PADDLE_API = 'https://paddle-api.example.test';
+export const PRIVACY_INBOX = 'privacy@example.test';
 
 /** A D1-shaped wrapper (prepare/bind/first/all/run, batch) over node:sqlite. */
 export function createTestDb() {
@@ -97,6 +99,7 @@ export function createSite({ complimentary = OWNER, files, rateLimit, origin = O
         '/auth/login.html': '<!doctype html><title>sign in</title>',
         '/auth/confirm.html': '<!doctype html><title>confirm</title>',
         '/auth/inactive.html': '<!doctype html><title>inactive</title>',
+        '/auth/privacy.html': '<!doctype html><title>your data</title>',
         '/demo/index.html': '<!doctype html><title>free demo</title>',
         '/demo/js/demo/boot.js': 'sandbox boot script',
         '/export/index.html': '<!doctype html><title>export page</title>',
@@ -114,6 +117,9 @@ export function createSite({ complimentary = OWNER, files, rateLimit, origin = O
         EMAIL_FROM: 'Aventurine Planner <signin@example.test>',
         PADDLE_PORTAL_URL: PORTAL_URL,
         PADDLE_WEBHOOK_SECRET: WEBHOOK_SECRET,
+        PADDLE_API_URL: PADDLE_API,
+        PADDLE_API_KEY: 'pdl_test_key',
+        PRIVACY_EMAIL: PRIVACY_INBOX,
         RESEND_API_KEY: resendKey,
         COMPLIMENTARY_EMAILS: complimentary,
         RATE_LIMIT: rateLimit ?? { limit: async ({ key }) => ({ success: !limited.has(key) }) },
@@ -121,16 +127,26 @@ export function createSite({ complimentary = OWNER, files, rateLimit, origin = O
 
     const pending = [];
     const ctx = { waitUntil: (p) => { pending.push(p); } };
-    const sent = { emails: [] };
-    const behavior = { resendStatus: 200 };
+    const sent = { emails: [], paddle: [] };
+    // paddleCancelStatus: what cancelling answers. paddleSubscriptionStatus: what
+    // Paddle says a subscription's status is. paddleCustomerEmail: who a customer is.
+    const behavior = { resendStatus: 200, paddleCancelStatus: 200, paddleSubscriptionStatus: 'active', paddleCustomerEmail: null };
 
     const realFetch = globalThis.fetch;
     globalThis.fetch = async (url, init = {}) => {
         const target = String(url);
         const body = init.body ? JSON.parse(init.body) : null;
         if (target.startsWith('https://api.resend.com/')) {
+            const status = behavior.refusedAddress === body.to[0] ? 500 : behavior.resendStatus;
             sent.emails.push({ headers: init.headers, ...body });
-            return new Response('{}', { status: behavior.resendStatus });
+            return new Response('{}', { status });
+        }
+        if (target.startsWith(PADDLE_API)) {
+            const path = target.slice(PADDLE_API.length);
+            sent.paddle.push({ method: init.method, path, body, headers: init.headers });
+            if (path.endsWith('/cancel')) return new Response('{}', { status: behavior.paddleCancelStatus });
+            if (path.startsWith('/customers/')) return Response.json({ data: { email: behavior.paddleCustomerEmail } });
+            return Response.json({ data: { status: behavior.paddleSubscriptionStatus } });
         }
         throw new Error(`unexpected outbound request to ${target}`);
     };

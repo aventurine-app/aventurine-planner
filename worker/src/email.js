@@ -46,6 +46,62 @@ export function deletionWarningMessage({ deleteOn, loginUrl, pricingUrl }) {
     return { subject, text, html };
 }
 
+/** The link that proves someone owns an address, so they can see or delete its data. */
+export function privacyLinkMessage(link, minutes) {
+    const lead = 'Someone asked to see or delete the data Aventurine holds for this email address.';
+    const foot = `The link expires in ${minutes} minutes. Nothing has changed yet, and nothing is deleted until you confirm it. `
+        + 'If you did not ask for this, you can ignore this email.';
+    return {
+        subject: 'Your Aventurine privacy request',
+        text: `${lead} Open this link to continue:\n\n${link}\n\n${foot}`,
+        html: `<p>${lead}</p><p><a href="${escapeHtml(link)}">See or delete your data</a></p><p>${foot}</p>`,
+    };
+}
+
+export const PADDLE_DELETION_URL = 'https://preferences.paddle.com/form/deletion';
+
+/** The confirmation that a deletion finished. The last email sent to this address. */
+export function erasureReceiptMessage() {
+    const lead = 'We have deleted your Aventurine Planner data: your encrypted plans, your email address, '
+        + 'your subscription record and your sign-in records. Any subscription is cancelled, so you will not be charged again.';
+    const support = 'If you have emailed us or bought from us before, we will find and delete those records within 30 days, '
+        + 'keeping only what the law requires.';
+    const backups = 'Copies in our providers\' backups and email logs expire on their own within 30 days.';
+    const paddle = 'Paddle, which took your payments, keeps its own records and decides on its own what to delete. '
+        + 'To ask it to delete yours, use its form:';
+    const foot = 'This is the last email we will send you.';
+    return {
+        subject: 'Your Aventurine data has been deleted',
+        text: `${lead}\n\n${support}\n\n${backups}\n\n${paddle}\n${PADDLE_DELETION_URL}\n\n${foot}`,
+        html: `<p>${lead}</p><p>${support}</p><p>${backups}</p>`
+            + `<p>${paddle} <a href="${PADDLE_DELETION_URL}">${PADDLE_DELETION_URL}</a></p><p>${foot}</p>`,
+    };
+}
+
+/**
+ * The owner's checklist for one deletion: the steps no code can do. Sent before
+ * the address is erased, and it is the only place the address survives, so
+ * PRIVACY.md ends by deleting this email. Plain text, read only by the owner.
+ */
+export function erasureOpsMessage({ email, requestedAt, dueBy, cancelled, stuck, complimentary }) {
+    const billing = stuck.length
+        ? `NOT FINISHED. Cancel ${stuck.join(', ')} in the Paddle dashboard. Nothing is deleted until that is done; `
+            + 'the worker retries daily and finishes by itself, and this email repeats until then.'
+        : `${cancelled} subscription(s) cancelled. Nothing further to do in Paddle.`;
+    const steps = [
+        'Support inbox: search for the address and delete what you find.',
+        complimentary
+            ? 'COMPLIMENTARY_EMAILS: this address is on the list. Remove it with wrangler secret put.'
+            : null,
+        'Delete this email, including from Sent and Trash.',
+    ].filter(Boolean).map((step, i) => `${i + 1}. ${step}`).join('\n');
+    return {
+        subject: `Privacy: finish deleting ${email} by ${longDate(dueBy)}`,
+        text: `A deletion was confirmed on ${longDate(requestedAt)}. Finish the steps below by ${longDate(dueBy)}.\n\n`
+            + `Address: ${email}\nBilling: ${billing}\n\n${steps}\n\nDetails are in worker/PRIVACY.md in the planner repo.`,
+    };
+}
+
 /** Send `message` ({ subject, text, html }) to `to`. Throws EmailError if it was not accepted. */
 export async function sendEmail({ apiKey, from, to, message, fetchImpl = fetch }) {
     if (!apiKey || !from) throw new EmailError('email is not configured');
