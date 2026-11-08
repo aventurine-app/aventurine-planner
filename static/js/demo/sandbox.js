@@ -3,7 +3,7 @@
 // ─── sandbox.js (free sandbox) ──────────────────────────────────────────────
 // The parts of the page that only the free sandbox has:
 //
-//   - the bar's title, "Aventurine Planner Demo", and, together in the middle
+//   - the bar's title, "Aventurine Demo", and, together in the middle
 //     of the bar, the limits meter and the "Get the full app" button;
 //   - Preferences → "Free demo", which explains the sandbox and can reset it
 //     (it takes the Account tab's place, since there is no account);
@@ -22,7 +22,7 @@
 
     // ── Top bar ────────────────────────────────────────────────────────────
 
-    document.querySelector('.titlebar-name').textContent = 'Aventurine Planner Demo';
+    document.querySelector('.titlebar-name').textContent = 'Aventurine Demo';
 
     const CAPS = [
         ['plans', 'Plans'],

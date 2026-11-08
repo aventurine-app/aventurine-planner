@@ -38,10 +38,20 @@
     white-space: nowrap;
     transition: width var(--motion-duration-mid) var(--motion-ease-in-out);
 }
+/* The company logo. At 24px with the lead's 20px inset it sits centred over
+   the collapsed 64px rail, so it stays when the name fades. */
+.titlebar-logo {
+    display: block;
+    flex: none;
+    width: 24px;
+    height: 24px;
+}
 /* The collapsed rail is too narrow for the name. */
 .titlebar-name {
     color: #fff;
-    font-size: var(--font-size-lg);
+    /* As tall as the 24px logo beside it. */
+    font-size: 24px;
+    line-height: 1;
     font-weight: var(--font-weight-strong);
     transition: opacity var(--motion-duration-mid);
 }
@@ -61,6 +71,23 @@
     font-size: var(--font-size);
     white-space: nowrap;
 }
+
+/* With sync on, the status is a cloud icon alone (titlebar.js renderSave):
+   green synced, orange not synced, grey offline or on its way. Fixed colours,
+   as the bar is dark in both themes. */
+.titlebar-sync {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    min-width: 0;
+    margin-right: var(--space-4);
+    cursor: default;
+}
+.titlebar-sync .icon { width: 22px; height: 22px; flex: none; }
+.titlebar-sync--synced { color: #52c41a; }
+.titlebar-sync--unsynced { color: #fa8c16; }
+.titlebar-sync--offline,
+.titlebar-sync--saving { color: rgba(255, 255, 255, 0.45); }
 
 /* The signed-in user, at the bar's right edge: a profile icon and the email,
    a text button on the dark bar. */

@@ -9,6 +9,8 @@
 //   add       drop a library tile, double-click empty space, or drag a link
 //             out of a port onto empty space
 //   link      drag from a module's right port onto another module
+//   relink    drag a link's line (or a selected link's grip) and the end
+//             nearer the press comes off its module onto another
 //   select    click a module or a link; drag empty space to box-select several
 //             modules, then drag any one of them to move the group together;
 //             Escape clears; Delete removes
@@ -33,12 +35,17 @@
     const nodeLayer = document.getElementById('nodes');
     if (!stage) return;
 
-    // The grip on the selected flow's receiving end: drag it to another dot or module.
-    const handle = document.createElement('div');
-    handle.className = 'link-handle';
-    handle.title = 'Drag to move this end';
-    handle.hidden = true;
-    nodeLayer.appendChild(handle);   // with the cards, so it sits over their dots
+    // The grips on the selected flow's two ends: drag one to another dot or module.
+    const handles = {};
+    for (const end of ['from', 'to']) {
+        const h = document.createElement('div');
+        h.className = 'link-handle';
+        h.dataset.end = end;
+        h.title = end === 'from' ? 'Drag to send this from another module' : 'Drag to send this to another module';
+        h.hidden = true;
+        nodeLayer.appendChild(h);   // with the cards, so it sits over their dots
+        handles[end] = h;
+    }
 
     // Mirrors .node in canvas.css; the dots sit at the middle of each side.
     const { NODE_W, NODE_H } = P.GEOM;
@@ -86,7 +93,7 @@
                 <button class="modal-close empty-state-close" type="button" data-act="dismiss-empty" aria-label="Close">×</button>
                 <div class="empty-state-art" aria-hidden="true">
                     ${[['source', 'briefcase'], ['account', 'piggy-bank'], ['expense', 'shopping-bag'],
-                        ['debt', 'cardholder'], ['modifier', 'credit-card'], ['account', 'chart-line-up']].map(([role, icon]) =>
+                        ['debt', 'cardholder'], ['group', 'folder'], ['account', 'chart-line-up']].map(([role, icon]) =>
                         `<span class="role-tile role-tile--lg" data-role="${role}">${iconSvg(icon)}</span>`).join('')}
                 </div>
                 <h2 class="empty-state-title" id="empty-state-title">Empty plan</h2>
@@ -186,7 +193,8 @@
 
     // Every card has a dot on each side. A link is drawn from the dot it was
     // dragged out of to the dot it was dropped on, and either end can be dragged
-    // to another dot or module. Nothing re-routes it afterwards.
+    // (by the line itself, or by the selected link's grips) to another dot or
+    // module. Nothing re-routes it afterwards.
     const SIDES = ['t', 'r', 'b', 'l'];
     const DIR = { t: { x: 0, y: -1 }, r: { x: 1, y: 0 }, b: { x: 0, y: 1 }, l: { x: -1, y: 0 } };
 
@@ -291,8 +299,16 @@
                 out.value = Fmt.money(s.value);
                 out.unit = s.unit;
             } else {
-                out.value = Fmt.money(nr.produced[vp.month]);
-                out.unit = '/mo';
+                // Past the last month an income pays, it has stopped.
+                const end = P.incomeEnd(Store.state.plan, node);
+                const endIdx = end ? P.ymDiff(Store.state.plan.settings.start, end) : Infinity;
+                if (vp.month > endIdx) {
+                    out.value = 'Stopped';
+                    out.done = true;
+                } else {
+                    out.value = Fmt.money(nr.produced[vp.month]);
+                    out.unit = '/mo';
+                }
             }
         } else {
             // Spending and a budget group show what reaches them; a tax or fee
@@ -431,7 +447,7 @@
         put(view, 'pos', `${node.x},${node.y}`, () => {
             view.el.style.transform = `translate(${node.x}px, ${node.y}px)`;
         });
-        put(view, 'role', role, (r) => {
+        put(view, 'role', C.swatchOf(p), (r) => {
             view.el.dataset.role = r;
         });
         // A dot starts a link when the module sends money on. A debt's left dot is
@@ -525,12 +541,33 @@
         label.className = 'link-label';
         label.dataset.link = link.id;
         // The dollars, then the rule behind them in parentheses: '$1,200/mo (20%)'.
-        const amount = document.createElement('span');
-        const rule = document.createElement('span');
-        rule.className = 'link-rule';
-        label.append(amount, rule);
+        // A two-way link has a second half for its way back, each led by an arrow.
+        const half = () => {
+            const el = document.createElement('span');
+            el.className = 'link-half';
+            const arrow = document.createElement('span');
+            arrow.className = 'link-arrow';
+            arrow.setAttribute('aria-hidden', 'true');
+            const amount = document.createElement('span');
+            const rule = document.createElement('span');
+            rule.className = 'link-rule';
+            el.append(arrow, amount, rule);
+            return { el, arrow, amount, rule };
+        };
+        const front = half();
+        const back = half();
+        back.el.hidden = true;
+        label.append(front.el, back.el);
         labelLayer.appendChild(label);
-        return { g, path, flow, hit, label, amount, rule, sig: {} };
+        return { g, path, flow, hit, label, amount: front.amount, rule: front.rule, front, back, sig: {} };
+    }
+
+    // The arrow along a line from `a` to `b`, by its main direction.
+    const OPPOSITE = { '→': '←', '←': '→', '↓': '↑', '↑': '↓' };
+    function arrowAlong(a, b) {
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        return Math.abs(dx) >= Math.abs(dy) ? (dx >= 0 ? '→' : '←') : (dy >= 0 ? '↓' : '↑');
     }
 
     /** How far each link moves off the port's centre: nothing for a pair's
@@ -571,22 +608,60 @@
         });
 
         const lr = res && res.links[link.id];
+        const two = !!link.back;
+        const lb = two && lr ? lr.back : null;
         const amount = !lr || !vp ? 0 : vp.all ? lr.avg : lr.flow[vp.month];
-        const idle = !lr || lr.total < 0.005;
+        const idle = !lr || (lr.total < 0.005 && !(lb && lb.total >= 0.005));
         put(view, 'idle', idle, () => {
             view.g.classList.toggle('is-idle', idle);
             view.flow.classList.toggle('is-idle', idle);
         });
 
-        // Before the first run there are no dollars yet, only the rule.
-        const figure = lr && vp ? D.linkFigure(link, from, amount, vp.all) : { amount: D.linkShort(link, from), rule: null };
-        put(view, 'amount', figure.amount, (t) => { view.amount.textContent = t; });
-        put(view, 'rule', figure.rule, (t) => {
-            view.rule.textContent = t ? `(${t})` : '';
-            view.rule.hidden = !t;
+        // A two-way link: which of its sides have started by the month shown
+        // (none over the whole plan), its dots turning round when only the
+        // way back runs. A side without a start condition has no `started`.
+        const begun = (e) => !!e && (e.started === undefined || (e.started != null && vp.month >= e.started));
+        const phase = !two || !vp || vp.all || !lr ? null
+            : begun(lr) && begun(lb) ? 'both' : begun(lr) ? 'out' : begun(lb) ? 'back' : 'none';
+        put(view, 'two', two, (v) => {
+            view.g.classList.toggle('is-twoway', v);
+            view.flow.classList.toggle('is-twoway', v);
+            view.label.classList.toggle('is-twoway', v);
+            view.back.el.hidden = !v;
         });
-        put(view, 'short', !!(lr && lr.short > 0.005), (v) => view.label.classList.toggle('is-short', v));
-        const said = `${from.name} to ${to.name}: ${figure.amount}${figure.rule ? ` (${figure.rule})` : ''}`;
+        put(view, 'phase', phase, (ph) => {
+            view.flow.classList.toggle('is-back', ph === 'back');
+            view.front.el.classList.toggle('is-live', ph === 'out' || ph === 'both');
+            view.back.el.classList.toggle('is-live', ph === 'back' || ph === 'both');
+        });
+
+        // Before the first run there are no dollars yet, only the rule. The
+        // half of a two-way link not running this month shows its rule.
+        const setHalf = (h, key, f) => {
+            put(view, `${key}-amount`, f.amount, (t) => { h.amount.textContent = t; });
+            put(view, `${key}-rule`, f.rule, (t) => {
+                h.rule.textContent = t ? `(${t})` : '';
+                h.rule.hidden = !t;
+            });
+        };
+        const figure = lr && vp && phase !== 'back' ? D.linkFigure(link, from, amount, vp.all) : { amount: D.linkShort(link, from), rule: null };
+        setHalf(view.front, 'front', figure);
+        let backFig = null;
+        if (two) {
+            const backAmount = !lb || !vp ? 0 : vp.all ? lb.avg : lb.flow[vp.month];
+            backFig = lb && vp && phase !== 'out' ? D.backFigure(link, to, backAmount, vp.all) : { amount: D.backShort(link, to), rule: null };
+            setHalf(view.back, 'back', backFig);
+            const out = arrowAlong(a, b);
+            put(view, 'arrows', out, (o) => {
+                view.front.arrow.textContent = o;
+                view.back.arrow.textContent = OPPOSITE[o];
+            });
+        }
+        put(view, 'short', !!(lr && (lr.short > 0.005 || (lb && lb.short > 0.005))), (v) => view.label.classList.toggle('is-short', v));
+        const words = (f) => `${f.amount}${f.rule ? ` (${f.rule})` : ''}`;
+        const said = two
+            ? `${from.name} to ${to.name}: ${words(figure)}; and back to ${from.name}: ${words(backFig)}`
+            : `${from.name} to ${to.name}: ${words(figure)}`;
         put(view, 'title', said, (t) => view.label.setAttribute('aria-label', t));
 
         const selected = sel && sel.kind === 'link' && sel.id === link.id;
@@ -650,14 +725,16 @@
         }
 
         const picked = frame.sel && frame.sel.kind === 'link' ? plan.links.find((l) => l.id === frame.sel.id) : null;
-        const pickedTo = picked && frame.byId.get(picked.to);
-        handle.hidden = !pickedTo;
-        if (pickedTo) {
-            const at = portAt(pickedTo, frame.linkSide.get(picked.id)[1]);
-            handle.style.left = `${at.x}px`;
-            handle.style.top = `${at.y}px`;
-            handle.dataset.id = picked.id;
-        }
+        ['from', 'to'].forEach((end, i) => {
+            const h = handles[end];
+            const node = picked && frame.byId.get(picked[end]);
+            h.hidden = !node;
+            if (!node) return;
+            const at = portAt(node, frame.linkSide.get(picked.id)[i]);
+            h.style.left = `${at.x}px`;
+            h.style.top = `${at.y}px`;
+            h.dataset.id = picked.id;
+        });
 
         stage.classList.toggle('flow-limited', plan.links.length > FLOW_LIMIT);
         emptyEl.hidden = plan.nodes.length > 0 || dismissedEmpty.has(plan.id);
@@ -733,7 +810,7 @@
             label: cat.name,
             items: C.PRESETS
                 .filter((p) => p.cat === cat.id && (!roles || roles.includes(p.role)))
-                .map((p) => ({ id: p.id, label: p.name, icon: p.icon, role: p.role, keywords: p.keywords })),
+                .map((p) => ({ id: p.id, label: p.name, icon: p.icon, role: C.swatchOf(p), keywords: p.keywords })),
         })).filter((g) => g.items.length);
     }
 
@@ -858,30 +935,15 @@
 
         if (grip) {
             const link = Store.link(grip.dataset.id);
-            const from = link && Store.node(link.from);
-            if (!from) return;
-            const side = linkSides(link)[0];
-            action = { type: 'reconnect', link, from, side, target: null };
-            ghost = document.createElementNS(SVG_NS, 'path');
-            ghost.classList.add('link-ghost');
-            svg.appendChild(ghost);
-            stage.classList.add('is-linking');
-            markTargets(from, link);
-            capture(e);
-            moveGhost(e);
+            if (link && startReconnect(e, link, grip.dataset.end)) capture(e);
             return;
         }
 
         if (port && card) {
-            const from = Store.node(card.dataset.id);
-            action = { type: 'connect', from, side: port.dataset.side, target: null };
-            ghost = document.createElementNS(SVG_NS, 'path');
-            ghost.classList.add('link-ghost');
-            svg.appendChild(ghost);
-            stage.classList.add('is-linking');
-            markTargets(from);
+            const anchor = Store.node(card.dataset.id);
+            action = { type: 'connect', anchor, side: port.dataset.side };
+            startGhost(e);
             capture(e);
-            moveGhost(e);
             return;
         }
         if (card) {
@@ -903,11 +965,54 @@
         }
         if (linkEl) {
             Store.select({ kind: 'link', id: linkEl.dataset.link });
+            // The line itself (not its label) can be pulled off a module: once
+            // the press moves, the end nearer to it comes away.
+            if (linkEl.classList.contains('link-hit')) {
+                action = { type: 'grab', id: linkEl.dataset.link, x0: e.clientX, y0: e.clientY };
+                capture(e);
+            }
             return;
         }
         startMarquee(e);
         capture(e);
     });
+
+    /** The end of `link` ('from' or 'to') nearer to a point on the stage. */
+    function nearerEnd(link, clientX, clientY) {
+        const from = Store.node(link.from);
+        const to = Store.node(link.to);
+        const [sa, sb] = linkSides(link);
+        const p = toWorld(clientX, clientY);
+        const a = portAt(from, sa);
+        const b = portAt(to, sb);
+        return Math.hypot(p.x - a.x, p.y - a.y) <= Math.hypot(p.x - b.x, p.y - b.y) ? 'from' : 'to';
+    }
+
+    /** Begin moving one end of `link`: the other end stays put and the ghost
+     *  runs from it to the pointer. Returns false if the link is gone. */
+    function startReconnect(e, link, end) {
+        const from = Store.node(link.from);
+        const to = Store.node(link.to);
+        if (!from || !to) return false;
+        const [sa, sb] = linkSides(link);
+        action = end === 'from'
+            ? { type: 'reconnect', link, end, anchor: to, side: sb }
+            : { type: 'reconnect', link, end, anchor: from, side: sa };
+        // The flow lifts off its old module while it is carried.
+        const view = linkViews.get(link.id);
+        if (view) for (const el of [view.g, view.flow, view.label]) el.classList.add('is-moving');
+        startGhost(e);
+        return true;
+    }
+
+    function startGhost(e) {
+        ghost = document.createElementNS(SVG_NS, 'path');
+        ghost.classList.add('link-ghost');
+        svg.appendChild(ghost);
+        stage.classList.add('is-linking');
+        markTargets();
+        moveGhost(e);
+    }
 
     stage.addEventListener('pointermove', (e) => {
         if (!action) return;
@@ -936,6 +1041,12 @@
             });
         } else if (action.type === 'marquee') {
             moveMarquee(e);
+        } else if (action.type === 'grab') {
+            if (Math.abs(e.clientX - action.x0) + Math.abs(e.clientY - action.y0) < 4) return;
+            const link = Store.link(action.id);
+            const end = link && nearerEnd(link, action.x0, action.y0);
+            action = null;
+            if (link) startReconnect(e, link, end);
         } else if (action.type === 'connect' || action.type === 'reconnect') {
             moveGhost(e);
         }
@@ -970,6 +1081,10 @@
             clearTargets();
             stage.classList.remove('is-linking');
             if (ghost) { ghost.remove(); ghost = null; }
+            if (a.type === 'reconnect') {
+                const view = linkViews.get(a.link.id);
+                if (view) for (const el of [view.g, view.flow, view.label]) el.classList.remove('is-moving');
+            }
             if (drop) (a.type === 'connect' ? dropLink : dropMovedLink)(e, a, drop);
         }
     }
@@ -978,39 +1093,44 @@
      *  and the element under the pointer. */
     function readDrop(e, a) {
         const target = nodeAt(e.clientX, e.clientY);
-        const valid = target && target.id !== a.from.id;
+        const valid = target && target.id !== a.anchor.id;
         return {
             target: valid ? target : null,
             onSelf: !!target && !valid,
-            side: valid ? dropSide(e, target, portAt(a.from, a.side)) : null,
+            side: valid ? dropSide(e, target, portAt(a.anchor, a.side)) : null,
             under: elementAt(e.clientX, e.clientY),
         };
     }
 
     function dropLink(e, a, { target, onSelf, side, under }) {
         if (target) {
-            const ok = P.canConnect(Store.state.plan, a.from.id, target.id);
-            if (ok.ok) Store.connect(a.from.id, target.id, null, { fromSide: a.side, toSide: side });
-            else refuse(ok.reason, a.from, target);
+            const ok = P.canConnect(Store.state.plan, a.anchor.id, target.id);
+            if (ok.ok) Store.connect(a.anchor.id, target.id, null, { fromSide: a.side, toSide: side });
+            else refuse(ok.reason, a.anchor, target);
         } else if (!onSelf && under && stage.contains(under) && !under.closest('.island')) {
-            openAddPicker(e.clientX, e.clientY, { from: a.from });
+            openAddPicker(e.clientX, e.clientY, { from: a.anchor });
         }
     }
 
-    /** Dropped on a module: onto it, at the dot it was dropped on. Dropped on
-     *  nothing, the flow stays as it was. */
+    /** Dropped on a module: that end moves onto it, at the dot it was dropped
+     *  on. Dropped on nothing, the flow stays as it was. */
     function dropMovedLink(e, a, { target, side }) {
         if (!target) return;
-        if (target.id === a.link.to && side === linkSides(a.link)[1]) return;   // put back where it was
-        const r = Store.reconnect(a.link.id, target.id, side);
-        if (!r.ok) refuse(r.reason, a.from, target);
+        const { link, end } = a;
+        if (target.id === link[end] && side === linkSides(link)[end === 'from' ? 0 : 1]) return;   // put back where it was
+        const r = Store.reconnect(link.id, target.id, side, end);
+        if (r.ok) return;
+        // Moving the sending end, the module dropped on is the one that would send.
+        if (end === 'from') refuse(r.reason, target, a.anchor);
+        else refuse(r.reason, a.anchor, target);
     }
     stage.addEventListener('pointerup', endAction);
     stage.addEventListener('pointercancel', endAction);
 
     /** Tell the user why a link was refused. */
     function refuse(reason, from, target) {
-        if (reason === 'duplicate') UI.toast('Those modules are already linked every way they can be.');
+        if (!P.basesFor(from).length) UI.toast(`${from.name} sends no money on.`);
+        else if (reason === 'duplicate') UI.toast('Those modules are already linked every way they can be.');
         else if (reason === 'role') UI.toast(linkRuleText(D.roleOf(from), D.roleOf(target)));
         else if (reason === 'basis') UI.toast(targetRuleText(from));
     }
@@ -1043,13 +1163,20 @@
         return `${from.name} sends only to ${rolesInWords(P.targetRoles(from))}.`;
     }
 
-    function moveGhost(e) {
-        const a = portAt(action.from, action.side);
-        const target = nodeAt(e.clientX, e.clientY);
+    /** Whether the link drag in progress may land on module `id`. A flow being
+     *  moved may stay on the module it already touches (to change dot). */
+    function canLand(id) {
         const plan = Store.state.plan;
-        // A flow being moved may stay on the module it already reaches (to change dot).
-        const stays = action.type === 'reconnect' && target && target.id === action.link.to;
-        const valid = target && target.id !== action.from.id && (stays || P.canConnect(plan, action.from.id, target.id).ok);
+        if (action.type === 'connect') return P.canConnect(plan, action.anchor.id, id).ok;
+        const { link, end } = action;
+        if (id === link[end]) return true;
+        return end === 'from' ? P.canConnect(plan, id, link.to).ok : P.canConnect(plan, link.from, id).ok;
+    }
+
+    function moveGhost(e) {
+        const a = portAt(action.anchor, action.side);
+        const target = nodeAt(e.clientX, e.clientY);
+        const valid = target && target.id !== action.anchor.id && canLand(target.id);
         let b;
         let sb;
         if (valid) {
@@ -1064,11 +1191,11 @@
         for (const [id, v] of nodeViews) v.el.classList.toggle('is-target', !!valid && id === target.id);
     }
 
-    function markTargets(from, moving = null) {
-        const plan = Store.state.plan;
+    /** Dim every module the link drag in progress cannot land on. */
+    function markTargets() {
         for (const [id, v] of nodeViews) {
-            if (id === from.id) continue;
-            v.el.classList.toggle('is-dim', !(moving && id === moving.to) && !P.canConnect(plan, from.id, id).ok);
+            if (id === action.anchor.id) continue;
+            v.el.classList.toggle('is-dim', !canLand(id));
         }
     }
 

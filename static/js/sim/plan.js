@@ -73,7 +73,17 @@
 // when it is edited ("From": a card's purchases or a loan's proceeds, say), and two modules
 // may be linked once per basis.
 //
-// Timing (`when`) is monthly, yearly (in `month`) or once (on `date`), with an
+// TWO-WAY LINKS. A link from one account to another may be two-way: `back`
+// sends money the other way, with the same choices as the way out. Saving
+// into a retirement fund and drawing from it from 65 is one link, not two.
+// See makeTwoWay.
+//
+// STARTING. Each side of a link (the link, and its way back) starts now, or
+// when a condition is first met (`startWhen`, see cleanStart): an age, or an
+// account reaching a size. Once started it keeps running.
+//
+// Timing (`when`) is monthly, yearly (in the month it starts and every twelfth
+// after) or once (on `date`, or the month it starts), with an
 // optional window (`start` / `end`). Money that arrives is split as it
 // arrives, so percent and rest links on an inflow are always monthly.
 //
@@ -95,8 +105,7 @@
     // was given. A preset that was only a name and icon on another's behaviour
     // (Freelance on Paycheck, Checking on Bank account) is retired this way.
     // `params` are settings the old preset stood for, which the survivor now
-    // holds as a setting (Pre-tax account is Tax-advantaged with its
-    // Contributions before tax).
+    // holds as a setting, or clear one the survivor does not use.
     const retireInto = (type, icons, params = null) => Object.fromEntries(
         Object.entries(icons).map(([old, icon]) => [old, { type, icon, params }]));
 
@@ -104,7 +113,21 @@
     // the module and its links are dropped, and a loan that was docked under it
     // stands on its own.
     // The Person module went too: its age is the plan's now (settings.age).
-    const REMOVED_TYPES = new Set(['real-estate', 'rental-property', 'vehicle', 'home', 'land', 'person']);
+    // So did Tax or fee, the Modifiers category's only module (and the Tax and
+    // Fee presets it had replaced).
+    const REMOVED_TYPES = new Set(['real-estate', 'rental-property', 'vehicle', 'home', 'land', 'person',
+        'tax-or-fee', 'tax', 'fee']);
+
+    /** What a saved module of a retired type opens as, or null. The
+     *  Tax-advantaged account folds by its Contributions setting: before tax
+     *  it is a Retirement Account, after tax an Investment. */
+    function retiredAs(n) {
+        if (!n) return null;
+        if (n.type === 'tax-advantaged-account' && isObj(n.params) && n.params.contributions === 'pre') {
+            return { type: '401k', icon: 'tree-evergreen', params: { match: 0 } };
+        }
+        return RETIRED_TYPES[n.type] || null;
+    }
 
     const RETIRED_TYPES = {
         ...retireInto('paycheck', { 'side-hustle': 'laptop', 'freelance': 'laptop', 'other-income': 'coins',
@@ -117,8 +140,11 @@
             'brokerage': 'chart-line-up', 'index-fund': 'chart-pie-slice', 'stocks': 'trend-up',
             'bonds': 'seal-percent', 'treasuries': 'bank', 'crypto': 'currency-btc', 'reit': 'building-office',
             'gold': 'diamond' }),
-        ...retireInto('tax-advantaged-account', { 'pretax-account': 'plant', 'trad-ira': 'tree', 'hsa': 'heartbeat' }, { contributions: 'pre' }),
-        ...retireInto('tax-advantaged-account', { 'tax-free-account': 'tree-evergreen', 'roth-ira': 'tree-evergreen', '529': 'graduation-cap' }),
+        // Pre-tax accounts are Retirement Accounts (with no employer match);
+        // after-tax ones are Investments (which have no yearly limit).
+        ...retireInto('401k', { 'pretax-account': 'plant', 'trad-ira': 'tree', 'hsa': 'heartbeat' }, { match: 0 }),
+        ...retireInto('investment', { 'tax-free-account': 'tree-evergreen', 'roth-ira': 'tree-evergreen', '529': 'graduation-cap',
+            'tax-advantaged-account': 'tree-evergreen' }, { capYearly: null }),
         ...retireInto('expense', {
             'rent': 'house', 'groceries': 'basket', 'dining': 'fork-knife', 'utilities': 'lightning',
             'transport': 'bus', 'insurance': 'shield-check', 'healthcare': 'first-aid', 'subscriptions': 'repeat',
@@ -128,7 +154,6 @@
         ...retireInto('loan', {
             'student-loan': 'student', 'car-loan': 'car-profile', 'mortgage': 'house-simple', 'home-equity': 'key',
             'personal-loan': 'handshake', 'medical-debt': 'first-aid-kit', 'bnpl': 'shopping-cart-simple' }),
-        ...retireInto('tax-or-fee', { 'tax': 'percent', 'fee': 'scissors' }),
         ...retireInto('one-time-income', { 'windfall': 'sparkle', 'inheritance': 'scroll' }),
         ...retireInto('expense', {
             'big-purchase': 'package', 'new-car': 'package', 'wedding': 'heart',
@@ -269,19 +294,18 @@
         return paysCost(to, basis) ? [...modes, 'cost'] : modes;
     }
 
-    /** Whether an account of preset `p` with `params` is paid from gross pay:
-     *  a 401(k), or a tax-advantaged account whose contributions are before tax. */
-    function takesPretax(p, params) {
-        return !!p && (!!p.pretax || (!!p.taxChoice && !!params && params.contributions === 'pre'));
+    /** Whether an account of preset `p` is paid from gross pay: a Retirement
+     *  Account (401(k), Traditional IRA, HSA). */
+    function takesPretax(p) {
+        return !!p && !!p.pretax;
     }
 
     /** Whether income sent along `link` is a pre-tax contribution: it leaves
-     *  an income module for a pre-tax account (401(k), or an HSA or IRA whose
-     *  contributions are before tax). */
+     *  an income module for a Retirement Account. */
     function isPretax(plan, link) {
         const from = nodeById(plan, link.from);
         const to = nodeById(plan, link.to);
-        return roleOf(from) === 'source' && !!to && takesPretax(Catalog.preset(to.type), to.params);
+        return roleOf(from) === 'source' && !!to && takesPretax(Catalog.preset(to.type));
     }
 
     /** A loan's monthly payment: the level payment that clears `balance` over
@@ -322,7 +346,9 @@
     function basesBetween(plan, from, to, exceptLinkId = null) {
         const role = roleOf(to);
         return basesFor(from).filter((basis) => portTargets(from, basis).includes(role)
-            && !plan.links.some((l) => l.id !== exceptLinkId && l.from === from.id && l.to === to.id && l.basis === basis));
+            && !plan.links.some((l) => l.id !== exceptLinkId && l.from === from.id && l.to === to.id && l.basis === basis)
+            // A two-way link already carries money back along this pair.
+            && !plan.links.some((l) => l.id !== exceptLinkId && l.back && l.from === to.id && l.to === from.id && basis === 'balance'));
     }
 
     // ── Goals ──────────────────────────────────────────────────────────────
@@ -411,6 +437,79 @@
         return Math.floor(age + ymDiff(start, ym) / 12);
     }
 
+    /** The last month an income pays ('YYYY-MM'), or null when it runs on.
+     *  Stopping at an age, that is the month before the plan's person turns
+     *  it (the month an age goal falls due, goalDate), so it needs the plan's
+     *  age. */
+    function incomeEnd(plan, node) {
+        const v = node.params;
+        if (v.stopBy === 'date') return v.end || null;
+        if (v.stopBy !== 'age' || v.endAge == null || plan.settings.age == null) return null;
+        return ymAdd(plan.settings.start, Math.round((v.endAge - plan.settings.age) * 12) - 1);
+    }
+
+    // ── Two-way links ──────────────────────────────────────────────────────
+    // A link from one account's balance to another account may be two-way.
+    // `back` is the way back:
+    //
+    //   back = { mode: 'percent' | 'fixed' | 'rest',   the rule coming back, out
+    //            value,                                 of the target's balance,
+    //            when: 'monthly' | 'yearly' | 'once',   with the same choices as
+    //            month, date, growth,                   the way out (a balance link's)
+    //            startWhen }                            and its own start
+    //
+    // Both ways run side by side, each from its own start.
+
+    const BACK_MODES = RULES.account.balance;
+    const BACK_WHENS = timingsFor('balance', 'fixed');
+
+    // ── Starting ───────────────────────────────────────────────────────────
+    // A side of a link starts now (`startWhen` null or absent), or the first
+    // month a condition is met, and keeps running from then on:
+    //
+    //   startWhen = { kind: 'age', age }                  the plan's person reaches `age`
+    //             | { kind: 'balance', account, amount }  `account` holds `amount` or more
+    //
+    // Sent once with a condition, it is sent the month it starts (it has no
+    // date of its own). A condition that cannot be met (an age with no plan
+    // age, an account that is gone) never starts it, and the engine flags it.
+
+    const START_KINDS = ['age', 'balance'];
+
+    /** The month an age condition is met ('YYYY-MM'), or null when the plan
+     *  has no age (or the condition is not an age). */
+    function startAgeMonth(plan, cond) {
+        if (!cond || cond.kind !== 'age' || cond.age == null || plan.settings.age == null) return null;
+        return ymAdd(plan.settings.start, Math.round((cond.age - plan.settings.age) * 12));
+    }
+
+    /** Whether a link may be two-way: from one account's balance to another account. */
+    function canTurn(plan, link) {
+        return link.basis === 'balance' && roleOf(nodeById(plan, link.from)) === 'account'
+            && roleOf(nodeById(plan, link.to)) === 'account';
+    }
+
+    /** Make `link` two-way, its way back starting now. A link already
+     *  running the other way between the pair becomes the way back (its rule,
+     *  timing and start) and is removed. Returns false when the link cannot
+     *  be two-way or already is. */
+    function makeTwoWay(plan, link) {
+        if (!link || link.back || !canTurn(plan, link)) return false;
+        const back = { mode: 'fixed', value: 2000, when: 'monthly', date: null,
+            growth: plan.settings.inflation || 0, startWhen: null };
+        const opposite = plan.links.find((l) => l.from === link.to && l.to === link.from && l.basis === 'balance');
+        if (opposite) {
+            if (BACK_MODES.includes(opposite.mode)) Object.assign(back, { mode: opposite.mode, value: opposite.mode === 'rest' ? 0 : opposite.value });
+            if (opposite.mode === 'fixed') back.growth = opposite.growth || 0;
+            if (BACK_WHENS.includes(opposite.when)) Object.assign(back, { when: opposite.when, date: opposite.date || null });
+            if (opposite.startWhen) back.startWhen = { ...opposite.startWhen };
+            plan.links.splice(plan.links.indexOf(opposite), 1);
+        }
+        if (back.when === 'once' && !back.date && !back.startWhen) back.date = ymAdd(plan.settings.start, 12);
+        link.back = back;
+        return true;
+    }
+
     /** Whether a link from `fromId` to `toId` may be drawn, and why not. Two
      *  modules may be linked once per basis (a card's purchases, a loan's proceeds...),
      *  so a pair is full only when every basis that reaches the target is
@@ -432,7 +531,7 @@
     }
 
     function blankRule() {
-        return { mode: 'rest', value: 0, basis: 'inflow', when: 'monthly', month: 1, date: null,
+        return { mode: 'rest', value: 0, basis: 'inflow', when: 'monthly', date: null,
             start: null, end: null, growth: 0 };
     }
 
@@ -500,7 +599,7 @@
      *  timing. */
     function priceRule(plan, to, buy) {
         if (to.params.cost != null && !costPayer(plan, to.id)) return { mode: 'cost', value: 0, when: 'monthly' };
-        return { mode: 'fixed', value: buy.value, when: buy.when, month: buy.month || 1,
+        return { mode: 'fixed', value: buy.value, when: buy.when,
             date: buy.relDate != null ? ymAdd(plan.settings.start, buy.relDate) : null };
     }
 
@@ -597,24 +696,30 @@
         return true;
     }
 
-    /** Move a link's receiving end: onto another module, or just to another dot
-     *  of the one it already reaches. The rule stays where the new target takes
-     *  it; otherwise the link moves to a basis that does. Returns { ok } or
-     *  { ok: false, reason } with canConnect's reasons. */
-    function reconnect(plan, link, toId, toSide = null) {
-        if (toId !== link.to) {
-            const check = canConnect(plan, link.from, toId);
+    /** Move one end of a link (`end`: 'to', the receiving end, or 'from', the
+     *  sending end): onto another module, or just to another dot of the one it
+     *  already touches. The rule stays where the new pair takes it; otherwise
+     *  the link moves to a basis that does. Returns { ok } or { ok: false,
+     *  reason } with canConnect's reasons. */
+    function reconnect(plan, link, nodeId, side = null, end = 'to') {
+        const sideKey = end === 'from' ? 'fromSide' : 'toSide';
+        if (nodeId !== link[end]) {
+            const fromId = end === 'from' ? nodeId : link.from;
+            const toId = end === 'from' ? link.to : nodeId;
+            const check = canConnect(plan, fromId, toId);
             if (!check.ok) return check;
-            const from = nodeById(plan, link.from);
+            const from = nodeById(plan, fromId);
             const to = nodeById(plan, toId);
-            const keeps = canConnect(plan, link.from, toId, link.basis).ok;
-            link.to = toId;
-            if (!keeps) changeBasis(plan, link, basesBetween(plan, from, to)[0]);
+            const keeps = canConnect(plan, fromId, toId, link.basis).ok;
+            link[end] = nodeId;
+            if (!keeps) changeBasis(plan, link, basesBetween(plan, from, to, link.id)[0]);
             fitRule(link, from, to);
             // Another link already pays the new target's cost: this one would pay it twice.
             if (link.mode === 'cost' && costPayer(plan, toId, link.id)) Object.assign(link, { mode: 'fixed', value: 0 });
+            // Only a link between two accounts turns around.
+            if (link.back && !canTurn(plan, link)) delete link.back;
         }
-        if (toSide) link.toSide = toSide; else delete link.toSide;
+        if (side) link[sideKey] = side; else delete link[sideKey];
         return { ok: true };
     }
 
@@ -661,7 +766,9 @@
         const out = {};
         const fields = Catalog.ROLE_FIELDS[p.role];
         const base = Catalog.defaultParams(p);
-        const src = isObj(raw) ? raw : {};
+        let src = isObj(raw) ? raw : {};
+        // An income's end date came before its Stops setting: it stops on it.
+        if (p.role === 'source' && src.stopBy === undefined && src.end) src = { ...src, stopBy: 'date' };
         for (const key of fields) {
             const spec = Catalog.FIELDS[key];
             const v = Object.prototype.hasOwnProperty.call(src, key) ? src[key] : base[key];
@@ -711,7 +818,6 @@
             value:  cleanNumber(raw.value ?? 0, 0, LIMITS.money, `link ${i} value`),
             basis:  BASES.includes(raw.basis) ? raw.basis : fail(`link ${i} has an unknown basis`),
             when:   WHENS.includes(raw.when) ? raw.when : fail(`link ${i} has an unknown timing`),
-            month:  Math.round(cleanNumber(raw.month ?? 1, 1, 12, `link ${i} month`)),
             date:   cleanYm(raw.date, `link ${i} date`, true),
             start:  cleanYm(raw.start, `link ${i} start`, true),
             end:    cleanYm(raw.end, `link ${i} end`, true),
@@ -733,11 +839,61 @@
             fail(`link ${i} sends ${link.basis} to a module that cannot take it`);
         }
         if (link.mode === 'percent') link.value = Math.min(link.value, 100);
-        // Proceeds happen on the module's own date, not the link's.
-        if (link.when === 'once' && link.basis !== 'proceeds' && !link.date) {
+        // Proceeds happen on the module's own date, so they always start with it.
+        const startWhen = link.basis === 'proceeds' ? null : cleanStart(raw.startWhen, nodesById, `link ${i}`);
+        if (startWhen) link.startWhen = startWhen;
+        // Proceeds happen on the module's own date, not the link's; a link
+        // with a start condition is sent once the month it starts.
+        if (link.when === 'once' && link.basis !== 'proceeds' && !link.date && !startWhen) {
             fail(`link ${i} needs a date`);
         }
+        // Only a link from one account's balance to another turns around.
+        if (isObj(raw.back) && link.basis === 'balance' && roleOf(from) === 'account' && roleOf(to) === 'account') {
+            link.back = cleanBack(raw.back, nodesById, `link ${i}`);
+        }
         return link;
+    }
+
+    /** A two-way link's way back, normalized. One from before each side had
+     *  a start turned around (`turn`, with `turnDate`, or once `date`): one
+     *  that turned at an age starts at it, any other starts now, and sent
+     *  once without that age it keeps the turn's date as its own. */
+    function cleanBack(raw, nodesById, what) {
+        const mode = BACK_MODES.includes(raw.mode) ? raw.mode : 'fixed';
+        const turned = typeof raw.turn === 'string';
+        const turnDate = !turned ? null : raw.switches === undefined ? raw.date : raw.turnDate;
+        const startWhen = turned && raw.switches !== false && raw.turn === 'age' && raw.age != null
+            ? cleanStart({ kind: 'age', age: raw.age }, nodesById, what)
+            : cleanStart(raw.startWhen, nodesById, what);
+        let when = BACK_WHENS.includes(raw.when) ? raw.when : 'monthly';
+        let date = cleanYm(turned && raw.switches === undefined ? null : raw.date, `${what} date back`, true);
+        // Sent once, it needs a date of its own or a start to be sent at.
+        if (when === 'once' && !date && !startWhen) date = cleanYm(turnDate ?? null, `${what} date back`, true);
+        if (when === 'once' && !date && !startWhen) when = 'monthly';
+        return {
+            mode,
+            value: mode === 'rest' ? 0 : cleanNumber(raw.value ?? 0, 0, mode === 'percent' ? 100 : LIMITS.money, `${what} amount back`),
+            when,
+            date,
+            growth: cleanNumber(raw.growth ?? 0, -100, 100, `${what} growth back`),
+            startWhen,
+        };
+    }
+
+    /** A side's start condition, normalized: null (now), an age, or an
+     *  account reaching an amount. An account that is gone (or is not an
+     *  account) is cleared, so the condition waits to be told. */
+    function cleanStart(raw, nodesById, what) {
+        if (!isObj(raw) || !START_KINDS.includes(raw.kind)) return null;
+        if (raw.kind === 'age') {
+            return { kind: 'age', age: cleanNumber(raw.age ?? 65, GOAL_AGE.min, GOAL_AGE.max, `${what} start age`) };
+        }
+        const acct = typeof raw.account === 'string' ? nodesById.get(raw.account) : null;
+        return {
+            kind: 'balance',
+            account: acct && roleOf(acct) === 'account' ? acct.id : null,
+            amount: cleanNumber(raw.amount ?? 0, 0, LIMITS.money, `${what} start amount`),
+        };
     }
 
     /** A goal of a kind from before goals were rules, as the rule it meant.
@@ -841,11 +997,8 @@
         if (!raw.nodes.some(isMatch)) return { nodes: raw.nodes, links: raw.links };
         const byId = new Map(raw.nodes.filter(isObj).map((n) => [n.id, n]));
         // Saved types may be retired ones, so read them as their survivors.
-        const presetOf = (n) => (n && Catalog.preset((RETIRED_TYPES[n.type] || n).type)) || {};
-        const takesPretaxNode = (n) => {
-            const r = n && RETIRED_TYPES[n.type];
-            return takesPretax(presetOf(n), { ...(n && isObj(n.params) ? n.params : {}), ...(r && r.params) });
-        };
+        const presetOf = (n) => (n && Catalog.preset((retiredAs(n) || n).type)) || {};
+        const takesPretaxNode = (n) => takesPretax(presetOf(n));
         const links = raw.links.filter(isObj);
         const intoK = new Map();   // a 401(k) id -> the node it is saved as
         const moved = new Map();   // a pay link -> the 401(k) id it now feeds
@@ -911,7 +1064,7 @@
         raw.nodes.forEach((n, i) => {
             if (!isObj(n)) fail(`module ${i} is malformed`);
             if (REMOVED_TYPES.has(n.type)) { removedIds.add(n.id); return; }
-            const retired = RETIRED_TYPES[n.type];
+            const retired = retiredAs(n);
             const p = Catalog.preset(retired ? retired.type : n.type);
             if (!p) fail(`module ${i} has an unknown type`);
             const node = {
@@ -1073,6 +1226,9 @@
             l.id = newId('l');
             l.from = map.get(l.from);
             l.to = map.get(l.to);
+            for (const s of [l, l.back]) {
+                if (s && s.startWhen && s.startWhen.account) s.startWhen.account = map.get(s.startWhen.account) || null;
+            }
         }
         delete copy.goals;
         return copy;
@@ -1082,7 +1238,7 @@
         PLAN_VERSION, LIMITS, GEOM, MONTHS, RULES, PlanError, REMOVED_TYPES, reconnect,
         ymParse, ymFormat, ymNow, ymAdd, ymDiff, ymLabel,
         newId, roleOf, basesFor, modesFor, timingsFor, costPayer, portTargets, targetRoles, basesBetween, changeBasis, loanPayment, isPretax,
-        createPlan, createNode, iconOf, ageAt, RETIRED_TYPES, canConnect, createLink, fitRule,
+        createPlan, createNode, iconOf, ageAt, incomeEnd, canTurn, makeTwoWay, BACK_MODES, BACK_WHENS, START_KINDS, startAgeMonth, RETIRED_TYPES, canConnect, createLink, fitRule,
         GOAL_METRICS, GOAL_OPS, GOAL_UNITS, GOAL_DUES, GOAL_VALUE, GOAL_AGE, GOAL_COLORS, createGoal, goalDate,
         validateGoals, legacyGoals, mergeGoals, validatePlan, cloneWithNewIds,
     };

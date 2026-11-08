@@ -29,21 +29,26 @@
     overflow-x: hidden;
 }
 
+/* The icon spans the title block: its top meets the top of the name, its
+   bottom the bottom of the tag. 32px name + 4px gap + 22px tag. */
 .insp-header {
+    --insp-tile: 58px;
     display: flex;
     align-items: flex-start;
     gap: var(--space-12);
     padding: var(--space-16) var(--space-20);
 }
+.insp-header .role-tile--lg { width: var(--insp-tile); height: var(--insp-tile); border-radius: var(--border-radius-lg); }
+.insp-header .role-tile--lg .icon { width: 28px; height: 28px; }
 /* The plan's own header: a page icon in a primary avatar. */
-.insp-plan-icon { width: 22px; height: 22px; color: var(--color-primary); }
+.insp-plan-icon { width: 28px; height: 28px; color: var(--color-primary); }
 .insp-plan-tile {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     flex: none;
-    width: 40px;
-    height: 40px;
+    width: var(--insp-tile);
+    height: var(--insp-tile);
     border-radius: var(--border-radius-lg);
     background: var(--color-primary-bg);
 }
@@ -63,8 +68,8 @@
     flex-direction: column;
     gap: var(--space-4);
 }
-/* The tags under a module's name: its role and its kind. */
-.insp-tags { display: flex; flex-wrap: wrap; gap: var(--space-4); }
+/* The tag under a module's name: its kind. */
+.insp-tags { display: flex; gap: var(--space-4); min-width: 0; }
 
 /* The name, as an editable title (Ant's Typography editable): plain text
    that shows a field's edge under the pointer and edits in place. */
@@ -92,6 +97,22 @@ div.insp-name:hover { border-color: transparent; }
     border-top: var(--line-width) solid var(--color-split);
 }
 .insp-section > .eyebrow { margin-bottom: var(--space-12); }
+/* A foldable section (a module's Settings, Inflows, Outflows, Details): its
+   eyebrow is a caret button. */
+.insp-fold {
+    display: flex; align-items: center; gap: var(--space-4);
+    width: 100%; padding: 0;
+    background: none; border: 0; cursor: pointer; text-align: left;
+}
+.insp-fold:hover { color: var(--color-text-secondary); }
+.insp-fold:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; border-radius: 2px; }
+.insp-fold-caret { width: 12px; height: 12px; flex: none; transition: transform 0.15s ease; }
+.insp-fold[aria-expanded="false"] { margin-bottom: 0; }
+.insp-fold[aria-expanded="false"] .insp-fold-caret { transform: rotate(-90deg); }
+@media (prefers-reduced-motion: reduce) { .insp-fold-caret { transition: none; } }
+/* A link's direction, One-way or Two-way, across the top of its card. */
+.insp-direction { display: flex; width: 100%; }
+.insp-direction > .segctl-btn { flex: 1; min-width: 0; }
 
 /* Label column + control column, as a horizontal Ant form. */
 .insp-fields {

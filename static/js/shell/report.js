@@ -39,6 +39,7 @@
     const ACCOUNT_SHADES = ['#0958d9', '#1677ff', '#4096ff', '#69b1ff', '#91caff', '#bae0ff'];
     const DEBT_SHADES = ['#a8071a', '#cf1322', '#ff4d4f', '#ffa39e'];
     const UNASSIGNED = '#bfbfbf';
+    const ASSET_SHADES = ['#389e0d', '#73d13d', '#237804', '#95de64'];
     const LINE = '#1f1f1f';
     const FLOW = { income: '#08979c', growth: '#722ed1', spent: '#ad6800', interest: '#a8071a' };
     const GRID = '#e5e5e5';
@@ -107,6 +108,8 @@
         const of = (role) => plan.nodes.filter((n) => P.roleOf(n) === role && res.nodes[n.id]);
         const ups = fold(of('account'), ACCOUNT_SHADES.length, 'Other accounts', (n) => res.nodes[n.id].balance)
             .map((b, i) => ({ ...b, color: ACCOUNT_SHADES[i] }));
+        of('debt').filter((n) => res.nodes[n.id].assetValue).forEach((n, i) => ups.push({
+            label: `${n.name} asset`, values: res.nodes[n.id].assetValue, color: ASSET_SHADES[i % ASSET_SHADES.length] }));
         if (res.unassigned.some((v) => Math.abs(v) > 0.005)) ups.push({ label: 'Unassigned', values: res.unassigned, color: UNASSIGNED });
         const downs = fold(of('debt'), DEBT_SHADES.length, 'Other debts', (n) => res.nodes[n.id].balance)
             .map((b, i) => ({ ...b, color: DEBT_SHADES[i] }));
@@ -265,9 +268,11 @@
         const rows = holders.map((node) => {
             const b = res.nodes[node.id].balance;
             const debt = P.roleOf(node) === 'debt';
-            return `<tr><th scope="row">${esc(node.name)}</th><td>${debt ? 'Debt' : 'Account'}</td>${num(debt ? -b[0] : b[0])}${num(debt ? -b[n] : b[n])}</tr>`;
+            const a = res.nodes[node.id].assetValue;
+            return `<tr><th scope="row">${esc(node.name)}</th><td>${debt ? 'Debt' : 'Account'}</td>${num(debt ? -b[0] : b[0])}${num(debt ? -b[n] : b[n])}</tr>`
+                + (a ? `<tr><th scope="row">${esc(node.name)} asset</th><td>Asset</td>${num(a[0])}${num(a[n])}</tr>` : '');
         }).join('');
-        return `<h3>Accounts and debts</h3><table class="report-table"><thead><tr><th scope="col">Module</th><th scope="col">Kind</th>
+        return `<h3>Accounts, assets and debts</h3><table class="report-table"><thead><tr><th scope="col">Module</th><th scope="col">Kind</th>
             <th scope="col" class="is-num">${esc(monthLabel(plan, 0))}</th><th scope="col" class="is-num">${esc(monthLabel(plan, n))}</th></tr></thead>
             <tbody>${rows}<tr class="is-total"><th scope="row">Net worth</th><td></td>${num(res.netWorth[0])}${num(res.netWorth[n])}</tr></tbody></table>`;
     }
@@ -275,7 +280,8 @@
     // ── The report ─────────────────────────────────────────────────────────
 
     function planSection(plan, res, goals, printed) {
-        const years = plan.settings.years;
+        // The length it was run over (the app's), not the one saved in the plan.
+        const years = res ? res.months / 12 : (window.Store?.state.years ?? plan.settings.years);
         const head = `<header class="report-head">
             <div class="report-brand">Aventurine Planner</div>
             <h2>${esc(plan.name)}</h2>

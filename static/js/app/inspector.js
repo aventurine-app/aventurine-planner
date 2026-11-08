@@ -45,6 +45,28 @@
         return `<section class="insp-section"><p class="eyebrow">${esc(title)}</p>${body}</section>`;
     }
 
+    // Foldable sections the user has opened or shut, by id ({ settings: false }),
+    // kept across modules and visits; the rest show their default.
+    const FOLD_KEY = 'inspector-folds';
+    const folds = (() => {
+        try {
+            const v = JSON.parse(Prefs.get(FOLD_KEY, '{}'));
+            return v && typeof v === 'object' ? v : {};
+        } catch {
+            return {};
+        }
+    })();
+
+    /** A section whose heading is a caret button that folds its body away. */
+    function foldSection(id, title, body, { open: byDefault = false } = {}) {
+        const open = typeof folds[id] === 'boolean' ? folds[id] : byDefault;
+        return `<section class="insp-section insp-section--fold">
+            <button class="insp-fold eyebrow" type="button" data-fold="${esc(id)}" aria-expanded="${open}">
+                ${iconSvg('caret-down', { cls: 'insp-fold-caret' })}<span>${esc(title)}</span></button>
+            <div class="insp-fold-body"${open ? '' : ' hidden'}>${body}</div>
+        </section>`;
+    }
+
     function row(label, control, { id, wide = false } = {}) {
         const w = wide ? ' insp-label--wide' : '';
         return `<label class="insp-label${w}" ${id ? `for="${id}"` : ''}>${esc(label)}</label><div class="insp-control${wide ? ' insp-control--wide' : ''}">${control}</div>`;
@@ -133,6 +155,10 @@
         if (sentence) {
             const l = Store.link(built.slice(5));
             if (l) sentence.innerHTML = D.linkSentence(l, Store.node(l.from), Store.node(l.to));
+            for (const el of root.querySelectorAll('[data-starts]')) {
+                const side = l && (el.dataset.starts === 'back' ? l.back : l);
+                if (side) el.textContent = startsLabel(plan(), side.startWhen);
+            }
         }
     }
 
@@ -217,7 +243,7 @@
 
     // ── Plan panel ─────────────────────────────────────────────────────────
 
-    const ROLE_ICON = { source: 'briefcase', account: 'piggy-bank', expense: 'shopping-bag', debt: 'cardholder', modifier: 'sliders-horizontal' };
+    const ROLE_ICON = { source: 'briefcase', account: 'piggy-bank', expense: 'shopping-bag', debt: 'cardholder', modifier: 'sliders-horizontal', group: 'folder' };
 
     function planPanel() {
         const nameB = bind('plan.name', {
@@ -227,7 +253,8 @@
             fallback: () => 'Untitled plan',
         });
         // The age is the person the plan is for, at its start: it dates a goal
-        // that is due at an age, and labels the charts.
+        // that is due at an age and an income that stops at one, and labels
+        // the charts.
         const settings = `<div class="insp-fields">
             ${field('Starts', 'plan.start', {
                 type: 'yearmonth',
@@ -255,9 +282,9 @@
         const p = plan();
         const r = results();
         if (!r) return '';
-        const counts = C.ROLE_ORDER.map((role) => {
-            const n = p.nodes.filter((x) => D.roleOf(x) === role).length;
-            return n ? `<span class="role-count" data-role="${role}"><span class="role-tile">${iconSvg(ROLE_ICON[role])}</span>${n} ${esc(C.ROLES[role].label)}</span>` : '';
+        const counts = [...C.ROLE_ORDER, 'group'].map((sw) => {
+            const n = p.nodes.filter((x) => D.swatchOf(x) === sw).length;
+            return n ? `<span class="role-count" data-role="${sw}"><span class="role-tile">${iconSvg(ROLE_ICON[sw])}</span>${n} ${esc(C.SWATCHES[sw].label)}</span>` : '';
         }).join('');
         return issuesHtml(r.warnings)
             + (counts ? section('Modules', `<div class="role-counts">${counts}</div>`) : '');
@@ -319,6 +346,9 @@
             if ((k === 'growth' || k === 'end') && p.role === 'expense') return per !== 'once';
             if (k === 'payMonth') return per === 'year';
             if (k === 'cashBackTo') return node.params.cashBack > 0;
+            // An income's stop shows the date or the age it asks for.
+            if (k === 'end' && p.role === 'source') return node.params.stopBy === 'date';
+            if (k === 'endAge') return node.params.stopBy === 'age';
             return true;
         });
     }
@@ -344,7 +374,7 @@
         const keys = visibleFields(node);
         if (!keys.length) return '';
         const fields = keys.map((k) => field(labelFor(node, k), `param.${k}`, paramSpec(node, k))).join('');
-        return section('Settings', `<div class="insp-fields">${fields}</div>`);
+        return foldSection('settings', 'Settings', `<div class="insp-fields">${fields}</div>`, { open: true });
     }
 
     /** One row in Outflows / Inflows: the module at the other end, the
@@ -353,7 +383,7 @@
         const r = results() && results().links[l.id];
         const short = r && r.short > 0.005;
         return `<li><button class="insp-link" type="button" data-select="link:${esc(l.id)}">
-            <span class="role-tile role-tile--sm" data-role="${D.roleOf(other)}">${iconSvg(P.iconOf(other))}</span>
+            <span class="role-tile role-tile--sm" data-role="${D.swatchOf(other)}">${iconSvg(P.iconOf(other))}</span>
             <span class="insp-link-text">
                 <span class="insp-link-name">${esc(other.name)}</span>
                 <span class="insp-link-amount" data-flow="${esc(l.id)}">${esc(flowText(l.id))}</span>
@@ -363,16 +393,15 @@
         </button></li>`;
     }
 
-    /** The tags under a module's name: its role, in its colour, and, once the
-     *  module is renamed, the kind of module it is ('Bank account'). */
-    function roleTags(p, name = p.name) {
-        const kind = name !== p.name && p.name !== C.ROLES[p.role].label ? `<span class="tag">${esc(p.name)}</span>` : '';
-        return `<div class="insp-tags"><span class="tag tag--role" data-role="${p.role}">${esc(C.ROLES[p.role].label)}</span>${kind}</div>`;
+    /** The tag under a module's name: the kind of module it is ('Bank account'). */
+    function typeTag(p) {
+        return `<div class="insp-tags"><span class="tag"><span>${esc(p.name)}</span></span></div>`;
     }
 
     function nodePanel(node) {
         const p = C.preset(node.type);
         const role = p.role;
+        const swatch = C.swatchOf(p);
         const id = node.id;
         const nameB = bind('node.name', {
             type: 'text', className: 'insp-name',
@@ -383,21 +412,21 @@
 
         const outs = plan().links.filter((l) => l.from === id);
         const ins = plan().links.filter((l) => l.to === id);
-        const sends = P.basesFor(node).length ? section('Outflows',
+        const sends = P.basesFor(node).length ? foldSection('outflows', 'Outflows',
             outs.length
                 ? `<ul class="insp-links">${outs.map((l) => linkRow(l, Store.node(l.to))).join('')}</ul>`
                 : '<p class="insp-none">No links yet</p>') : '';
-        const receives = C.ROLES[role].hasIn ? section('Inflows',
+        const receives = C.ROLES[role].hasIn ? foldSection('inflows', 'Inflows',
             ins.length
                 ? `<ul class="insp-links">${ins.map((l) => linkRow(l, Store.node(l.from))).join('')}</ul>`
                 : '<p class="insp-none">Nothing links here yet</p>') : '';
 
         return `
-            <div class="insp-card" data-role="${role}">
+            <div class="insp-card" data-role="${swatch}">
             <div class="insp-header">
-                <button class="role-tile role-tile--lg role-tile--button" type="button" data-act="node-icon" data-role="${role}"
+                <button class="role-tile role-tile--lg role-tile--button" type="button" data-act="node-icon" data-role="${swatch}"
                     data-icon="${esc(P.iconOf(node))}" aria-haspopup="dialog" aria-label="Change icon" title="Change icon">${iconSvg(P.iconOf(node))}</button>
-                <div class="insp-titles">${nameB.html}${roleTags(p, node.name)}</div>
+                <div class="insp-titles">${nameB.html}${typeTag(p)}</div>
             </div>
             ${settingsSection(node)}
             </div>
@@ -409,15 +438,15 @@
     /** A library module before it is added: its starting settings, read-only. */
     function presetPanel(presetId) {
         const p = C.preset(presetId);
-        const role = p.role;
+        const swatch = C.swatchOf(p);
         const node = P.createNode(plan(), presetId, 0, 0);
         const icon = Store.state.previewIcon || p.icon;
         return `
-            <div class="insp-card" data-role="${role}">
+            <div class="insp-card" data-role="${swatch}">
             <div class="insp-header">
-                <button class="role-tile role-tile--lg role-tile--button" type="button" data-act="preview-icon" data-role="${role}"
+                <button class="role-tile role-tile--lg role-tile--button" type="button" data-act="preview-icon" data-role="${swatch}"
                     aria-haspopup="dialog" aria-label="Change icon" title="Change icon">${iconSvg(icon)}</button>
-                <div class="insp-titles"><div class="insp-name">${esc(p.name)}</div>${roleTags(p)}</div>
+                <div class="insp-titles"><div class="insp-name">${esc(p.name)}</div>${typeTag(p)}</div>
             </div>
             ${settingsSection(node)}
             </div>`;
@@ -446,6 +475,14 @@
                 + stat('Paid off', paidOff ? D.monthLabel(plan(), paidOff.month) : 'Not in this plan')
                 + stat('Paid', money(nr.totals.paid))
                 + stat('Interest', money(nr.totals.interest));
+            if (nr.assetValue) {
+                const value = nr.assetValue[m];
+                const equity = value - nr.balance[m];
+                stats += stat('Asset value at end', money(value))
+                    + stat(nr.totals.assetGrowth >= 0 ? 'Appreciation' : 'Depreciation', money(Math.abs(nr.totals.assetGrowth)),
+                        nr.totals.assetGrowth >= 0 ? 'up' : 'down')
+                    + stat('Equity at end', money(equity), equity < -0.5 ? 'down' : 'up');
+            }
             if (kind === 'card') {
                 const net = nr.totals.cashback - nr.totals.fees;
                 stats += (node.params.limit > 0 ? stat('Credit limit', money(node.params.limit)) : '')
@@ -475,7 +512,7 @@
         }
         const unplaced = nr.totals.unplaced;
         if (unplaced > 0.5 && role !== 'account') stats += stat('Unassigned', money(unplaced));
-        return section('Outlook', `<div class="insp-stats">${stats}</div>`);
+        return foldSection('details', 'Details', `<div class="insp-stats">${stats}</div>`);
     }
 
     /** What the last run flagged on a module, shown right under its settings. */
@@ -499,10 +536,6 @@
         const setL = (fn) => (pl, v) => { const l = pl.links.find((x) => x.id === id); fn(l, v); P.fitRule(l, ...ends(pl, l)); };
 
         const bases = P.basesFor(from);
-        const modes = P.modesFor(from, link.basis, to);
-        const timings = P.timingsFor(link.basis, link.mode);
-        const sym = Fmt.symbolParts().symbol;
-
         let rule = '';
         // What the link carries (a card's purchases, a loan's proceeds...) is picked here;
         // the other links between this pair hold the bases they already use.
@@ -516,78 +549,193 @@
         } else if (bases.length > 1) {
             rule += row('From', `<span class="insp-static">${esc(D.portLabel(from, link.basis))}</span>`);
         }
-        rule += row('Send', `<div class="segctl" role="group" aria-label="Send">${modes.map((m) =>
-            `<button class="segctl-btn" type="button" data-mode="${m}" aria-pressed="${link.mode === m}">${esc(MODE_LABEL[m] || sym)}</button>`).join('')}</div>`,
-        { wide: modes.length > 3 });
-        if (link.mode === 'percent') {
-            rule += field(link.basis === 'charges' ? 'Of limit' : 'Percent', 'link.value', {
-                type: 'percent', min: 0, max: 100,
-                get: () => L().value,
-                set: setL((l, v) => { l.value = v; }),
-            });
-        } else if (link.mode === 'cost') {
+        rule += ruleRows({
+            r: link, R: L, setR: setL, key: 'link', modeAttr: 'data-mode', aria: 'Send',
+            starts: link.basis !== 'proceeds',
+            modes: P.modesFor(from, link.basis, to), timings: P.timingsFor(link.basis, link.mode),
+            percentLabel: link.basis === 'charges' ? 'Of limit' : 'Percent',
             // The cost is the expense's own setting: shown here, edited there.
-            rule += row('Cost', `<span class="insp-static">${esc(D.nodeMeta(to) || 'None set')}</span>`);
-        } else if (link.mode === 'fixed') {
-            rule += field('Amount', 'link.value', {
-                type: 'money', min: 0, max: P.LIMITS.money,
-                get: () => L().value,
-                set: setL((l, v) => { l.value = v; }),
-            });
-        }
-        if (timings.length > 1) {
-            rule += field('When', 'link.when', {
-                type: 'select', rebuild: true,
-                options: timings.map((w) => [w, WHEN_LABEL[w]]),
-                get: () => L().when,
-                set: setL((l, v) => {
-                    l.when = v;
-                    if (v === 'once' && !l.date) l.date = P.ymAdd(plan().settings.start, 12);
-                }),
-            });
-            if (link.when === 'yearly') {
-                rule += field('In', 'link.month', {
-                    type: 'select', numeric: true,
-                    options: P.MONTHS.map((mo, i) => [String(i + 1), mo]),
-                    get: () => L().month,
-                    set: setL((l, v) => { l.month = v; }),
-                });
-            } else if (link.when === 'once') {
-                rule += field('On', 'link.date', {
-                    type: 'yearmonth',
-                    get: () => L().date,
-                    set: setL((l, v) => { l.date = v; }),
-                });
-            }
-        }
+            costRow: row('Cost', `<span class="insp-static">${esc(D.nodeMeta(to) || 'None set')}</span>`),
+        });
 
-        if (link.mode === 'fixed') {
-            rule += field('Grows', 'link.growth', {
-                type: 'percent', min: -100, max: 100, suffix: '/yr',
-                get: () => L().growth,
-                set: setL((l, v) => { l.growth = v; }),
-            });
-        }
+        // A link between two accounts may be two-way (plan.js, two-way links):
+        // its way back has the same rows as the way out, its start included.
+        const two = !!link.back;
+        const canTwo = two || P.canTurn(plan(), link);
+        const why = canTwo ? '' : ' title="Only a flow between two accounts can be two-way"';
+        const direction = `<section class="insp-section">
+            <div class="segctl insp-direction" role="group" aria-label="Direction"${why}>
+                <button class="segctl-btn" type="button" data-act="link-oneway" aria-pressed="${!two}">${iconSvg('arrow-right')}One-way</button>
+                <button class="segctl-btn" type="button" data-act="link-twoway" aria-pressed="${two}"${canTwo ? '' : ' disabled'}>${iconSvg('arrows-left-right')}Two-way</button>
+            </div></section>`;
+        const backHtml = two ? section(`Back to ${from.name}`, `<div class="insp-fields">${backFields(link)}</div>`) : '';
 
         return `
             <div class="insp-card insp-card--link">
             <div class="insp-header">
-                <div class="insp-titles">${linkEnds(from, to)}</div>
+                <div class="insp-titles">${linkEnds(from, to, two)}</div>
                 <button class="button-icon" type="button" data-act="link-delete" aria-label="Delete flow" title="Delete flow">${iconSvg('trash')}</button>
             </div>
-            ${section('Flow', `<div class="insp-fields">${rule}</div>`)}
+            ${direction}
+            ${section(two ? `To ${to.name}` : 'Flow', `<div class="insp-fields">${rule}</div>`)}
+            ${backHtml}
             <section class="insp-section"><p class="sentence" data-sentence>${D.linkSentence(link, from, to)}</p></section>
             </div>
             <div data-issues></div>
             <div data-stats></div>`;
     }
 
+    /** A rule's rows, the same for a link's way out and a two-way link's way
+     *  back: Send, its Percent or Amount, When (and On a date, sent once),
+     *  Grows and Start. `r` is the rule as built, `R` reads it as it is now,
+     *  `setR` wraps an edit of it, and `key` ('link' or 'back') names its
+     *  bindings and its side. */
+    function ruleRows({ r, R, setR, key, modes, timings, modeAttr, aria, percentLabel = 'Percent', costRow = '', starts = true }) {
+        const sym = Fmt.symbolParts().symbol;
+        let html = row('Send', `<div class="segctl" role="group" aria-label="${esc(aria)}">${modes.map((m) =>
+            `<button class="segctl-btn" type="button" ${modeAttr}="${m}" aria-pressed="${r.mode === m}">${esc(MODE_LABEL[m] || sym)}</button>`).join('')}</div>`,
+        { wide: modes.length > 3 });
+        if (r.mode === 'percent') {
+            html += field(percentLabel, `${key}.value`, {
+                type: 'percent', min: 0, max: 100,
+                get: () => R().value,
+                set: setR((x, v) => { x.value = v; }),
+            });
+        } else if (r.mode === 'cost') {
+            html += costRow;
+        } else if (r.mode === 'fixed') {
+            html += field('Amount', `${key}.value`, {
+                type: 'money', min: 0, max: P.LIMITS.money,
+                get: () => R().value,
+                set: setR((x, v) => { x.value = v; }),
+            });
+        }
+        if (timings.length > 1) {
+            html += field('When', `${key}.when`, {
+                type: 'select', rebuild: true,
+                options: timings.map((w) => [w, WHEN_LABEL[w]]),
+                get: () => R().when,
+                set: setR((x, v) => {
+                    x.when = v;
+                    if (v === 'once' && !x.date && !x.startWhen) x.date = P.ymAdd(plan().settings.start, 12);
+                }),
+            });
+            // Every year is sent the month it starts and every twelfth after.
+            if (r.when === 'once' && !(starts && r.startWhen)) {
+                // With a start condition, once is the month it starts.
+                html += field('On', `${key}.date`, {
+                    type: 'yearmonth',
+                    get: () => R().date,
+                    set: setR((x, v) => { x.date = v; }),
+                });
+            }
+        }
+        if (r.mode === 'fixed') {
+            html += field('Grows', `${key}.growth`, {
+                type: 'percent', min: -100, max: 100, suffix: '/yr',
+                get: () => R().growth,
+                set: setR((x, v) => { x.growth = v; }),
+            });
+        }
+        if (starts) html += startRows(r, R, setR, key);
+        return html;
+    }
+
+    /** A side's Start: Now, or When a condition is met, an age or an
+     *  account's size (plan.js, Starting). */
+    function startRows(r, R, setR, key) {
+        const c = r.startWhen;
+        const on = c ? 'when' : 'now';
+        let html = row('Start', `<div class="segctl" role="group" aria-label="Start">${[['now', 'Now'], ['when', 'When']].map(([v, t]) =>
+            `<button class="segctl-btn" type="button" data-start="${key}:${v}" aria-pressed="${on === v}">${t}</button>`).join('')}</div>`);
+        if (!c) return html;
+        const C = () => R().startWhen || {};
+        html += field('Condition', `${key}.startWhen.kind`, {
+            type: 'select', rebuild: true,
+            options: [['age', 'Age'], ['balance', 'Account size']],
+            get: () => C().kind,
+            // A new kind starts afresh (newStart), as Send's modes do.
+            set: (pl, v) => {
+                const l = pl.links.find((x) => x.id === built.slice(5));
+                const side = l && (key === 'back' ? l.back : l);
+                if (side && side.startWhen && side.startWhen.kind !== v) side.startWhen = newStart(pl, l, key, v);
+            },
+        });
+        const setC = (fn) => setR((x, v) => { if (x.startWhen) fn(x.startWhen, v); });
+        if (c.kind === 'age') {
+            html += field('Age', `${key}.startWhen.age`, {
+                type: 'number', min: P.GOAL_AGE.min, max: P.GOAL_AGE.max, suffix: 'yrs', decimals: true,
+                get: () => C().age,
+                set: setC((x, v) => { x.age = v; }),
+            });
+            html += row('Starts', `<span class="insp-static" data-starts="${key}">${esc(startsLabel(plan(), c))}</span>`);
+        } else {
+            const accounts = plan().nodes.filter((n) => D.roleOf(n) === 'account');
+            html += field('Account', `${key}.startWhen.account`, {
+                type: 'select', rebuild: true,
+                options: [...(c.account ? [] : [['', 'Pick an account']]), ...accounts.map((n) => [n.id, n.name])],
+                get: () => C().account || '',
+                set: setC((x, v) => { x.account = v || null; }),
+            });
+            html += field('Reaches', `${key}.startWhen.amount`, {
+                type: 'money', min: 0, max: P.LIMITS.money,
+                get: () => C().amount,
+                set: setC((x, v) => { x.amount = v; }),
+            });
+        }
+        return html;
+    }
+
+    /** The month an age start is met, for its Starts row: 'Nov 2061'. */
+    function startsLabel(p, c) {
+        if (!c || c.kind !== 'age') return '';
+        const ym = P.startAgeMonth(p, c);
+        return ym ? P.ymLabel(ym) : 'Needs your age (plan Timeline)';
+    }
+
+    /** A new start condition for a side of `l` in `pl`: an age (65, or the
+     *  next birthday past it), or the size of the account the side draws
+     *  from (else the first account), reaching $100,000. */
+    function newStart(pl, l, key, kind) {
+        if (kind === 'age') {
+            const age = pl.settings.age;
+            return { kind: 'age', age: age != null && age >= 65 ? Math.floor(age) + 1 : 65 };
+        }
+        const isAcct = (id) => { const n = pl.nodes.find((x) => x.id === id); return n && D.roleOf(n) === 'account'; };
+        const own = key === 'back' ? l.to : l.from;
+        const first = pl.nodes.find((n) => D.roleOf(n) === 'account');
+        const account = isAcct(own) ? own : isAcct(l.to) ? l.to : first ? first.id : null;
+        return { kind: 'balance', account, amount: 100000 };
+    }
+
+    /** Reading and editing a two-way link's way back. */
+    function backAccess(link) {
+        const id = link.id;
+        return {
+            B: () => (Store.link(id) || link).back,
+            setB: (fn) => (pl, v) => {
+                const l = pl.links.find((x) => x.id === id);
+                if (l && l.back) fn(l.back, v);
+            },
+        };
+    }
+
+    /** The way back of a two-way link: the same rows as the way out (a
+     *  balance link's between two accounts). */
+    function backFields(link) {
+        const { B, setB } = backAccess(link);
+        return ruleRows({
+            r: link.back, R: B, setR: setB, key: 'back', modeAttr: 'data-back-mode', aria: 'Send back',
+            modes: P.BACK_MODES, timings: P.BACK_WHENS,
+        });
+    }
+
     /** The two ends of a link, each a button that selects its module. */
-    function linkEnds(from, to) {
+    function linkEnds(from, to, two = false) {
         const end = (n) => `<button class="link-end" type="button" data-select="node:${esc(n.id)}">
-            <span class="role-tile" data-role="${D.roleOf(n)}">${iconSvg(P.iconOf(n))}</span><span>${esc(n.name)}</span></button>`;
+            <span class="role-tile" data-role="${D.swatchOf(n)}">${iconSvg(P.iconOf(n))}</span><span>${esc(n.name)}</span></button>`;
         return `<div class="link-ends">${end(from)}
-            <span class="link-ends-arrow" aria-hidden="true">${iconSvg('arrow-right')}</span>${end(to)}</div>`;
+            <span class="link-ends-arrow" aria-hidden="true">${iconSvg(two ? 'arrows-left-right' : 'arrow-right')}</span>${end(to)}</div>`;
     }
 
     function linkIssues(link) {
@@ -707,6 +855,16 @@
     });
 
     root.addEventListener('click', (e) => {
+        const fold = e.target.closest('[data-fold]');
+        if (fold) {
+            const id = fold.dataset.fold;
+            const open = fold.getAttribute('aria-expanded') !== 'true';
+            fold.setAttribute('aria-expanded', String(open));
+            fold.nextElementSibling.hidden = !open;
+            folds[id] = open;
+            Prefs.set(FOLD_KEY, JSON.stringify(folds));
+            return;
+        }
         const sel = e.target.closest('[data-select]');
         if (sel) {
             const [kind, ...rest] = sel.dataset.select.split(':');
@@ -755,6 +913,51 @@
             rebuild();
             return;
         }
+        const backMode = e.target.closest('[data-back-mode]');
+        if (backMode) {
+            const id = built.slice(5);
+            Store.edit((pl) => {
+                const l = pl.links.find((x) => x.id === id);
+                const next = backMode.dataset.backMode;
+                if (!l || !l.back || l.back.mode === next) return false;
+                // As on the way out: one link takes the rest of an account's balance.
+                const takesRest = (x) => x.id !== id && ((x.from === l.to && x.basis === 'balance' && x.mode === 'rest')
+                    || (x.to === l.to && x.back && x.back.mode === 'rest'));
+                if (next === 'rest' && pl.links.some(takesRest)) {
+                    UI.toast('Another link already takes the rest.');
+                    return false;
+                }
+                // The amount means something else in the other mode: start it afresh.
+                l.back.value = next === 'percent' ? 4 : next === 'fixed' ? 2000 : 0;
+                l.back.mode = next;
+                return true;
+            });
+            rebuild();
+            return;
+        }
+        // A side's Start: Now, or When a condition is met (an age, to begin with).
+        const startBtn = e.target.closest('[data-start]');
+        if (startBtn) {
+            const id = built.slice(5);
+            const [key, v] = startBtn.dataset.start.split(':');
+            Store.edit((pl) => {
+                const l = pl.links.find((x) => x.id === id);
+                const side = l && (key === 'back' ? l.back : l);
+                if (!side || (v === 'when') === !!side.startWhen) return false;
+                if (v === 'now') {
+                    delete side.startWhen;
+                    if (key === 'back') side.startWhen = null;
+                    // Sent once and starting now, it needs a date of its own.
+                    if (side.when === 'once' && !side.date) side.date = P.ymAdd(pl.settings.start, 12);
+                } else {
+                    side.startWhen = newStart(pl, l, key, 'age');
+                }
+                return true;
+            });
+            rebuild();
+            root.querySelector(`[data-start="${startBtn.dataset.start}"]`)?.focus();
+            return;
+        }
         const act = e.target.closest('[data-act]');
         if (!act) return;
         const key = built;
@@ -776,12 +979,23 @@
             });
         } else if (act.dataset.act === 'link-delete') {
             Store.removeLink(key.slice(5));
+        } else if (act.dataset.act === 'link-twoway') {
+            Store.edit((pl) => P.makeTwoWay(pl, pl.links.find((x) => x.id === key.slice(5))));
+            rebuild();
+        } else if (act.dataset.act === 'link-oneway') {
+            Store.edit((pl) => {
+                const l = pl.links.find((x) => x.id === key.slice(5));
+                if (!l || !l.back) return false;
+                delete l.back;
+                return true;
+            });
+            rebuild();
         }
     });
 
     /** The icon grid for a module of preset `p`, in its role's colour. */
     function openIconPicker(anchor, p, value, onPick) {
-        UI.iconPicker(anchor, { icons: C.iconChoices(p), value, role: p.role, onPick });
+        UI.iconPicker(anchor, { icons: C.iconChoices(p), value, role: C.swatchOf(p), onPick });
     }
 
     function toggle() {
@@ -822,7 +1036,12 @@
         }
         if (built.startsWith('link:')) {
             const l = Store.link(built.slice(5));
-            return l ? `${l.mode}|${l.basis}|${l.when}|${Store.node(l.from)?.params.start}` : '';
+            // A two-way link's way back has fields of its own (and none once it is one-way).
+            const startSig = (c) => (c ? `${c.kind}:${c.account || ''}` : 'now');
+            const back = l && l.back ? `${l.back.mode}|${l.back.when}|${startSig(l.back.startWhen)}` : 'one-way';
+            // An account-size start lists the plan's accounts.
+            const accounts = p.nodes.filter((a) => D.roleOf(a) === 'account').map((a) => `${a.id}:${a.name}`).join(',');
+            return l ? `${l.mode}|${l.basis}|${l.when}|${Store.node(l.from)?.params.start}|${startSig(l.startWhen)}|${back}|${accounts}` : '';
         }
         return '';
     }

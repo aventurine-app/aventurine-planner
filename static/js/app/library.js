@@ -25,8 +25,8 @@
             <span class="lib-group-name" aria-hidden="true">${escapeHtml(cat.name)}</span>
             <div class="lib-group-items">${items.map((p) => `
                 <button class="lib-tile" type="button" draggable="true" data-preset="${p.id}" aria-pressed="false"
-                        aria-label="${escapeHtml(p.name)}, ${escapeHtml(C.ROLES[p.role].label)}" title="${escapeHtml(p.name)}">
-                    <span class="role-tile" data-role="${p.role}">${iconSvg(p.icon)}</span>
+                        aria-label="${escapeHtml(p.name)}, ${escapeHtml(C.SWATCHES[C.swatchOf(p)].label)}" title="${escapeHtml(p.name)}">
+                    <span class="role-tile" data-role="${C.swatchOf(p)}">${iconSvg(p.icon)}</span>
                 </button>`).join('')}
             </div>
         </div>`;

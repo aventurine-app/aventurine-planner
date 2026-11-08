@@ -8,9 +8,10 @@
 //
 // One month, in order:
 //   1. Debts that start this month become owed, and their proceeds are paid
-//      out along their proceeds links.
+//      out along their proceeds links. A loan secured by an asset brings the
+//      asset in with it.
 //   2. Balances move. Accounts earn (or lose) at their rate and keep it;
-//      debts accrue interest. Cards make their purchases.
+//      debts accrue interest; assets appreciate. Cards make their purchases.
 //   3. Income arrives and is split along their links. Money keeps
 //      moving through spending and modifiers until it comes to rest. An
 //      account keeps whatever arrives.
@@ -51,6 +52,21 @@
 // the plan is flagged `below-minimum` from the first month an account that had
 // reached its minimum ends below it.
 //
+// Two-way links. A link between two accounts may have a way back, out of the
+// target's balance into the source, with the same rules as any balance link,
+// running side by side with the way out.
+//
+// Starting. Each side of a link starts now or when its condition is first met
+// (plan.js, Starting): an age, or an account's balance at the top of a month
+// reaching an amount. A fixed amount rises each year from its start. A side
+// that never starts (no plan age, no account picked, a size never reached) is
+// flagged `no-start`.
+//
+// Stopping income. A salary or paycheck may be set to stop: its Last paid
+// month is the last it pays, and stopping at an age it pays up to the month
+// before the plan's person turns that age (plan.js, incomeEnd). Without the
+// plan's age set, an age stop is flagged `stop-no-age` and the income runs on.
+//
 // Expense costs. An expense may have a cost of its own, on a schedule like
 // income's (every month, a yearly lump, once) and rising by its inflation rate
 // each year from when it starts. A link set to the cost pays exactly what falls
@@ -71,12 +87,19 @@
 // anything. A card owing more than 30% of its limit at the month's peak (after
 // purchases, before payments) is flagged as `utilization`.
 //
+// Assets. A loan's Asset value is the home or car it is secured by. The asset
+// counts toward net worth from the start (or, for a loan that starts inside the
+// plan, from the month it is bought) and changes each month at its
+// Appreciation rate, an effective annual rate like an account's. That change
+// is growth. No money flows into or out of it: what was paid for it was
+// spending, and its arrival is `acquired`. It stays after the loan is paid off.
+//
 // Conservation. Money enters only as income, an employer
 // match, cash back, growth or a loan's proceeds, and leaves only as spending,
 // a tax or fee, or debt interest. A credit card's annual fee is a fee: it is added to the
 // balance owed, so it lowers net worth the month it is charged. Money with nowhere to go lands in the Unassigned pool, which
 // counts toward net worth. So the change in net worth always equals
-//   income - withholding + match + cash back + growth - interest - spent - taxes/fees
+//   income - withholding + match + cash back + growth + acquired - interest - spent - taxes/fees
 // and the test suite checks that identity on every scenario.
 
 (function (root, factory) {
@@ -120,9 +143,35 @@
             const preset = Catalog.preset(node.type);
             if (!preset) return;
             const s = makeState(node, preset, index, months, idxOf, series);
+            // An income's stop can hang on the plan's age, so it is read here.
+            if (s.role === 'source') {
+                const end = Plan.incomeEnd(plan, node);
+                s.endIdx = end ? idxOf(end) : Infinity;
+            }
             states.push(s);
             byId.set(s.id, s);
         });
+
+        // A side with a start condition (plan.js, Starting) waits for it: an
+        // age is a month known now; an account's size is checked at the top
+        // of each month (`waiting`). Sent once, it is sent the month it starts.
+        const waiting = [];
+        const startOn = (L, cond) => {
+            if (!cond) return;
+            L.cond = cond;
+            if (cond.kind === 'age') {
+                const ym = Plan.startAgeMonth(plan, cond);
+                L.startIdx = ym == null ? Infinity : Math.max(L.startIdx, idxOf(ym));
+                if (L.when === 'once') L.dateIdx = L.startIdx;
+                return;
+            }
+            const acct = cond.account && byId.get(cond.account);
+            L.waitOn = acct && acct.role === 'account' ? acct : null;
+            L.notBefore = L.startIdx;
+            L.startIdx = Infinity;
+            if (L.when === 'once') L.dateIdx = null;
+            if (L.waitOn) waiting.push(L);
+        };
 
         const linkStates = [];
         for (const link of plan.links) {
@@ -135,7 +184,7 @@
                 id: link.id, link, from, to,
                 mode: pays ? 'fixed' : link.mode, costOf: pays ? to : null,
                 basis: link.basis, when: link.when,
-                value: link.value, month: link.month, growth: link.growth || 0,
+                value: link.value, growth: link.growth || 0,
                 dateIdx: link.date ? idxOf(link.date) : null,
                 startIdx: link.start ? idxOf(link.start) : -Infinity,
                 endIdx: link.end ? idxOf(link.end) : Infinity,
@@ -148,6 +197,29 @@
                 ? 'pretax' : link.basis;
             from.outs[group].push(L);
             linkStates.push(L);
+
+            startOn(L, link.startWhen);
+
+            // A two-way link's way back runs out of the target's balance into
+            // the source, side by side with the way out, each from its own
+            // start. Both halves carry the link's id; the way back is marked `back`.
+            if (link.back && from.role === 'account' && to.role === 'account') {
+                const b = link.back;
+                const B = {
+                    id: link.id, link, from: to, to: from, back: true,
+                    mode: b.mode, costOf: null, basis: 'balance', when: b.when,
+                    value: b.value, growth: b.mode === 'fixed' ? b.growth || 0 : 0,
+                    dateIdx: b.date ? idxOf(b.date) : null,
+                    startIdx: -Infinity,
+                    endIdx: Infinity,
+                    flow: series(),
+                    short: 0, shortFirst: -1,
+                    givenMonth: -1, given: 0,
+                };
+                startOn(B, b.startWhen);
+                to.outs.balance.push(B);
+                linkStates.push(B);
+            }
         }
         for (const s of states) {
             for (const basis of Object.keys(s.outs)) {
@@ -169,7 +241,7 @@
         const totals = {
             earned: series(), withheld: series(), match: series(), cashback: series(),
             growth: series(), interest: series(), spent: series(), skimmed: series(),
-            proceeds: series(), debtPaid: series(),
+            proceeds: series(), debtPaid: series(), acquired: series(),
         };
         const unassigned = new Float64Array(months + 1);
         const unassignedIn = series();
@@ -191,7 +263,9 @@
         const firesNow = (L) => {
             if (L.costOf) return costDue(L.costOf) > EPS;
             return L.when === 'monthly'
-                || (L.when === 'yearly' && cal === L.month)
+                // Yearly: in the month it starts (the plan's first, starting
+                // now) and every twelfth after, so a start leaves no gap.
+                || (L.when === 'yearly' && (t - Math.max(0, L.startIdx)) % 12 === 0)
                 || (L.when === 'once' && t === L.dateIdx);
         };
         const fixedValue = (L) => {
@@ -334,28 +408,13 @@
                     return;
                 }
                 case 'modifier': {
+                    // A budget group: everything arriving is split by its links.
                     s.inflow[t] += amount;
-                    const rate = (s.params.rate || 0) / 100;
-                    let out;
-                    if (s.kind === 'group') {
-                        out = amount;
-                    } else {
-                        const cut = amount * Math.min(1, rate);
-                        s.consumed[t] += cut;
-                        totals.skimmed[t] += cut;
-                        out = amount - cut;
-                    }
-                    if (out > EPS) {
-                        const left = allocate(s, 'inflow', out);
-                        if (left <= EPS) return;
-                        if (s.kind === 'group') {
-                            // What a budget group does not hand on is spent in the group.
-                            s.consumed[t] += left;
-                            totals.spent[t] += left;
-                        } else {
-                            park(s, left);
-                        }
-                    }
+                    const left = allocate(s, 'inflow', amount);
+                    if (left <= EPS) return;
+                    // What a budget group does not hand on is spent in the group.
+                    s.consumed[t] += left;
+                    totals.spent[t] += left;
                     return;
                 }
                 default:
@@ -475,6 +534,14 @@
         for (t = 0; t < months; t++) {
             cal = ((startMonth - 1 + t) % 12) + 1;
             arrivals = 0;
+            // Sides waiting on an account's size start once it is reached.
+            for (let i = waiting.length - 1; i >= 0; i--) {
+                const L = waiting[i];
+                if (L.waitOn.bal < L.cond.amount - EPS) continue;
+                L.startIdx = Math.max(t, L.notBefore);
+                if (L.when === 'once') L.dateIdx = L.startIdx;
+                waiting.splice(i, 1);
+            }
             if (cal === 1) {
                 for (const s of accounts) { s.depositsThisYear = 0; s.matchedThisYear = 0; }
             }
@@ -497,6 +564,10 @@
                 const principal = s.params.balance || 0;
                 s.bal += principal;
                 totals.proceeds[t] += principal;
+                if (s.assetValue) {
+                    s.assetBal = s.params.asset;
+                    totals.acquired[t] += s.assetBal;
+                }
                 const left = allocate(s, 'proceeds', principal);
                 if (left > EPS) park(s, left);
             }
@@ -517,6 +588,12 @@
                     s.bal += interest;
                     s.interest[t] = interest;
                     totals.interest[t] += interest;
+                }
+                if (s.assetBal > EPS && s.assetMonthlyRate !== 0) {
+                    const change = s.assetBal * s.assetMonthlyRate;
+                    s.assetBal += change;
+                    s.assetGrowth[t] = change;
+                    totals.growth[t] += change;
                 }
             }
             for (const s of cards) chargeCard(s);
@@ -555,7 +632,11 @@
         function recordBalances(k) {
             let worth = unassignedBal;
             for (const s of accounts) { s.balance[k] = s.bal; worth += s.bal; }
-            for (const s of debts) { s.balance[k] = s.bal; worth -= s.bal; }
+            for (const s of debts) {
+                s.balance[k] = s.bal;
+                worth -= s.bal;
+                if (s.assetValue) { s.assetValue[k] = s.assetBal; worth += s.assetBal; }
+            }
             unassigned[k] = unassignedBal;
             netWorth[k] = worth;
         }
@@ -593,7 +674,8 @@
             s.unplaced = series();
             s.monthlyRate = Math.pow(1 + Math.max(-100, params.rate || 0) / 100, 1 / 12) - 1;
             s.lockIdx = params.lockUntil ? idxOf(params.lockUntil) : null;
-            s.cap = params.capYearly == null ? null : params.capYearly;
+            // Only a preset that shows the Yearly limit setting is held to it.
+            s.cap = params.capYearly != null && Catalog.fieldsFor(preset).includes('capYearly') ? params.capYearly : null;
             s.depositsThisYear = 0;
             // Only a preset that shows the Employer match setting is matched.
             s.matchRate = preset.employerMatch ? params.match || 0 : 0;
@@ -623,6 +705,14 @@
             s.originates = s.startIdx != null && s.startIdx >= 0;
             s.paidOffAt = -1;
             s.scheduled = preset.kind === 'card' ? 0 : Plan.loanPayment(params);
+            // What the loan is secured by (cards never are). Owned from day one
+            // unless the loan, and so the purchase, comes later.
+            if (preset.kind !== 'card' && params.asset > 0) {
+                s.assetValue = new Float64Array(months + 1);
+                s.assetGrowth = series();
+                s.assetMonthlyRate = Math.pow(1 + Math.max(-100, params.assetRate || 0) / 100, 1 / 12) - 1;
+                s.assetBal = s.originates ? 0 : params.asset;
+            }
             s.pending = 0;          // payments queued but not yet arrived
             if (s.kind === 'card') {
                 s.charged = series();
@@ -755,7 +845,8 @@
             const out = { role: s.role, kind: s.kind, outflow: s.outflow };
             if (s.role === 'debt' && s.scheduled > 0) out.payment = s.scheduled;
             for (const key of ['balance', 'inflow', 'earnings', 'gross', 'pretax', 'produced',
-                'consumed', 'interest', 'paid', 'unplaced', 'charged', 'cashback', 'fees', 'matched']) {
+                'consumed', 'interest', 'paid', 'unplaced', 'charged', 'cashback', 'fees', 'matched',
+                'assetValue', 'assetGrowth']) {
                 if (s[key]) out[key] = s[key];
             }
             out.totals = {
@@ -770,6 +861,7 @@
                 earnings: s.earnings ? sum(s.earnings) : 0,
                 matched: s.matched ? sum(s.matched) : 0,
                 interest: s.interest ? sum(s.interest) : 0,
+                assetGrowth: s.assetGrowth ? sum(s.assetGrowth) : 0,
                 paid: s.paid ? sum(s.paid) : 0,
                 unplaced: s.unplaced ? sum(s.unplaced) : 0,
             };
@@ -809,6 +901,15 @@
                     warnings.push({ code: 'debt-growing', nodeId: s.id, amount: s.balance[months] - first });
                 }
             }
+            if (s.role === 'source' && s.params.per !== 'once') {
+                // Stopped inside the plan: the last month it pays. Before the
+                // plan starts, it pays nothing at all.
+                if (s.endIdx >= 0 && s.endIdx < months - 1) milestones.push({ code: 'stops', nodeId: s.id, month: s.endIdx });
+                else if (s.endIdx < 0) warnings.push({ code: 'stopped-before', nodeId: s.id });
+                if (s.params.stopBy === 'age' && s.params.endAge != null && r.plan.settings.age == null) {
+                    warnings.push({ code: 'stop-no-age', nodeId: s.id });
+                }
+            }
             if (s.role === 'account' && s.lockIdx != null && s.lockIdx > 0 && s.lockIdx <= months) {
                 milestones.push({ code: 'unlocks', nodeId: s.id, month: s.lockIdx });
             }
@@ -825,9 +926,22 @@
         const links = Object.create(null);
         for (const L of linkStates) {
             const total = sum(L.flow);
-            links[L.id] = { flow: L.flow, total, avg: total / months, short: L.short };
+            const entry = { flow: L.flow, total, avg: total / months, short: L.short };
+            // A two-way link's way back sits under its link's entry.
+            if (L.back) links[L.id].back = entry;
+            else links[L.id] = entry;
+            // A side with a start condition says the month it started (null:
+            // it never did), and why when it never did.
+            if (L.cond) {
+                entry.started = Number.isFinite(L.startIdx) ? Math.max(0, L.startIdx) : null;
+                if (entry.started == null) {
+                    const why = L.cond.kind === 'age' ? 'no-age' : L.waitOn ? 'unreached' : 'no-account';
+                    warnings.push({ code: 'no-start', linkId: L.id, nodeId: L.from.id, why, ...(L.back ? { back: true } : {}) });
+                }
+            }
             if (L.short > 0.005) {
-                warnings.push({ code: 'short', linkId: L.id, nodeId: L.from.id, amount: L.short, month: L.shortFirst });
+                warnings.push({ code: 'short', linkId: L.id, nodeId: L.from.id, amount: L.short, month: L.shortFirst,
+                    ...(L.back ? { back: true } : {}) });
             }
         }
 

@@ -81,7 +81,7 @@
     /**
      * Every month as { columns, rows }: the month ('YYYY-MM'), its flows, the
      * net worth and each account's and debt's balance it ends on (debts as
-     * what is owed). Values are numbers rounded to the cent; a column a plan
+     * what is owed), with the value of each asset a loan is secured by. Values are numbers rounded to the cent; a column a plan
      * cannot fill (age without a person) holds null.
      */
     function months(plan, res) {
@@ -90,6 +90,7 @@
             const role = Plan.roleOf(nd);
             return (role === 'account' || role === 'debt') && res.nodes[nd.id];
         });
+        const assets = holders.filter((nd) => res.nodes[nd.id].assetValue);
         const hasUnassigned = res.unassigned.some((v) => Math.abs(v) > 0.005);
         const hasAge = plan.settings.age != null;
         const columns = [
@@ -97,6 +98,7 @@
             'Take-home pay', 'Withheld', 'Employer match', 'Cash back', 'Spent', 'Taxes and fees', 'Growth', 'Interest',
             'Net worth',
             ...holders.map((nd) => `${nd.name} (${Plan.roleOf(nd) === 'debt' ? 'owed' : 'balance'})`),
+            ...assets.map((nd) => `${nd.name} (asset value)`),
             ...(hasUnassigned ? ['Unassigned'] : []),
         ];
         const cents = (v) => Math.round(v * 100) / 100 || 0;
@@ -109,6 +111,7 @@
                 cents(F.spent[m]), cents(F.skimmed[m]), cents(F.growth[m]), cents(F.interest[m]),
                 cents(res.netWorth[m + 1]),
                 ...holders.map((nd) => cents(res.nodes[nd.id].balance[m + 1])),
+                ...assets.map((nd) => cents(res.nodes[nd.id].assetValue[m + 1])),
                 ...(hasUnassigned ? [cents(res.unassigned[m + 1])] : []),
             ]);
         }

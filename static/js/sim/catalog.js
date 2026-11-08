@@ -15,10 +15,14 @@
 //                        cost on a schedule (and a yearly inflation rate),
 //                        which a link set to its cost pays.
 //   debt      Debt       Holds what is owed. Interest adds to it; money that
-//                        arrives pays it down.
-//   modifier  Modifier   Money passes through and changes on the way: a tax or
-//                        a fee. A budget group is the one that changes
-//                        nothing: it only splits.
+//                        arrives pays it down. A loan may be secured by
+//                        something it bought (a home, a car): that thing's
+//                        value counts toward net worth beside what is owed.
+//                        Nothing flows in or out of it; it only appreciates
+//                        (or, at a negative rate, depreciates).
+//   modifier  Modifier   Money passes through unchanged and is split on: the
+//                        budget group. What it does not pass on is spent in
+//                        the group.
 //
 // Every preset below (about a dozen of them) is one of those five roles with a
 // name, an icon, the fields it shows and starting values. Learning the five
@@ -51,6 +55,20 @@
         modifier: { id: 'modifier', label: 'Modifier', hasIn: true,  holds: false },
     };
     const ROLE_ORDER = ['source', 'account', 'expense', 'debt', 'modifier'];
+
+    // ── Swatches ───────────────────────────────────────────────────────────
+    // The colour and tag a module wears ([data-role] in the CSS). It is its
+    // role's, except that a budget group, which only splits, wears its own
+    // neutral 'Group' so it does not read as a tax or fee.
+    const SWATCHES = {
+        ...ROLES,
+        group: { id: 'group', label: 'Group' },
+    };
+
+    /** The swatch a preset wears: a SWATCHES id. */
+    function swatchOf(p) {
+        return p.kind === 'group' ? 'group' : p.role;
+    }
 
     // Which roles a link may run into, by the role it leaves. Nothing links
     // into a source (income has no input). Spending sends nothing on. A credit
@@ -98,8 +116,11 @@
         limit:      { type: 'money',     label: 'Credit limit',     min: 0,    max: 1e10, optional: true },
         match:      { type: 'percent',   label: 'Employer match',   min: 0,    max: 200 },
         matchLimit: { type: 'money',     label: 'Yearly match limit', min: 0, max: 1e10, optional: true },
-        contributions: { type: 'choice', label: 'Contributions',
-                      options: [['after', 'After tax'], ['pre', 'Before tax']] },
+        stopBy:     { type: 'choice',    label: 'Stops',
+                      options: [['never', 'Never'], ['date', 'On a date'], ['age', 'At an age']] },
+        endAge:     { type: 'number',    label: 'At age',           min: 1,    max: 120,  optional: true, suffix: 'yrs' },
+        asset:      { type: 'money',     label: 'Asset value',      min: 0,    max: 1e11, optional: true },
+        assetRate:  { type: 'percent',   label: 'Appreciation',     min: -100, max: 100,  suffix: '/yr' },
     };
 
     // How many of each `per` period fall in a month. A yearly amount and a
@@ -107,19 +128,19 @@
     const PER_MONTH = { week: 52 / 12, biweek: 26 / 12, month: 1 };
 
     const ROLE_FIELDS = {
-        source:   ['amount', 'per', 'payMonth', 'growth', 'tax', 'start', 'end'],
-        account:  ['balance', 'minBalance', 'rate', 'lockUntil', 'capYearly', 'match', 'matchLimit', 'contributions'],
+        source:   ['amount', 'per', 'payMonth', 'growth', 'tax', 'start', 'stopBy', 'end', 'endAge'],
+        account:  ['balance', 'minBalance', 'rate', 'lockUntil', 'capYearly', 'match', 'matchLimit'],
         expense:  ['cost', 'per', 'payMonth', 'growth', 'start', 'end'],
-        debt:     ['balance', 'rate', 'term', 'start', 'cashBack', 'cashBackTo', 'annualFee', 'limit'],
-        modifier: ['rate'],
+        debt:     ['balance', 'rate', 'term', 'start', 'asset', 'assetRate', 'cashBack', 'cashBackTo', 'annualFee', 'limit'],
+        modifier: [],
     };
 
     const ROLE_DEFAULTS = {
-        source:   { amount: 0, per: 'month', payMonth: 0, growth: 0, tax: 0, start: null, end: null },
-        account:  { balance: 0, minBalance: null, rate: 0, lockUntil: null, capYearly: null, match: 0, matchLimit: null, contributions: 'after' },
+        source:   { amount: 0, per: 'month', payMonth: 0, growth: 0, tax: 0, start: null, stopBy: 'never', end: null, endAge: null },
+        account:  { balance: 0, minBalance: null, rate: 0, lockUntil: null, capYearly: null, match: 0, matchLimit: null },
         expense:  { cost: null, per: 'month', payMonth: 0, growth: 0, start: null, end: null },
-        debt:     { balance: 0, rate: 0, term: null, start: null, cashBack: 0, cashBackTo: null, annualFee: null, limit: null },
-        modifier: { rate: 0 },
+        debt:     { balance: 0, rate: 0, term: null, start: null, asset: null, assetRate: 0, cashBack: 0, cashBackTo: null, annualFee: null, limit: null },
+        modifier: {},
     };
 
     // ── Categories ─────────────────────────────────────────────────────────
@@ -160,10 +181,9 @@
                   'shopping-cart-simple', 'bank', 'receipt', 'scales', 'warning', 'clock', 'hourglass', 'link',
                   'anchor', 'lock', 'notebook', 'file-text', 'percent', 'money', 'coins', 'hand-coins', 'wallet',
                   'gavel', 'cardholder'] },
-        { id: 'modifiers',  name: 'Modifiers',  icon: 'sliders-horizontal',
-          icons: ['hand-coins', 'percent', 'scissors', 'sliders-horizontal', 'funnel', 'arrows-split',
-                  'plus-minus', 'divide', 'calculator', 'receipt', 'bank', 'gavel', 'scales', 'shield',
-                  'hand-withdraw', 'hand-deposit', 'gear', 'wrench', 'faders', 'equals'] },
+        { id: 'groups',     name: 'Group',      icon: 'folder',
+          icons: ['folder', 'arrows-split', 'squares-four', 'funnel', 'house', 'basket', 'shopping-cart',
+                  'wallet', 'piggy-bank'] },
     ];
 
     // ── Presets ────────────────────────────────────────────────────────────
@@ -173,20 +193,23 @@
     // defaults    starting values merged over ROLE_DEFAULTS. Amounts, rates and
     //             dates always start empty; only a cadence (Every, Paid in) is set
     // fixed       values the preset pins and hides (a windfall is always 'once')
-    // kind        modifiers: 'skim' | 'group' (a budget group: it passes
-    //             everything on, split by its links). Debts: 'card' (a credit
-    //             card).
+    // kind        modifiers: 'group' (a budget group: it passes everything
+    //             on, split by its links). Debts: 'card' (a credit card).
     // pretax      accounts paid from gross pay: income sent here is taken before
     //             withholding (see engine.js, pre-tax contributions)
-    // taxChoice   accounts whose Contributions setting says whether they are
-    //             pre-tax ('pre') or paid from take-home pay ('after')
     // employerMatch  accounts whose Employer match setting adds to what pay puts
     //             in (see engine.js, employer match)
     // inLink      the rule a new link INTO this module starts with
     // keywords    extra search terms
     // Installment loans are repaid over a term, so their payment is worked out
-    // from it (plan.js, loanPayment) rather than typed in.
-    const DEBT_FIELDS = ['balance', 'rate', 'term', 'start'];
+    // from it (plan.js, loanPayment) rather than typed in. A loan's Asset value
+    // is what it is secured by (a mortgage's home, a car loan's car): worth that
+    // today, or when it is bought if the loan starts later in the plan.
+    const DEBT_FIELDS = ['balance', 'rate', 'term', 'start', 'asset', 'assetRate'];
+    // An income may stop: never, after a month (its Last paid, inclusive), or
+    // the month its plan's person reaches an age (plan.js, incomeEnd).
+    const STOPS = ['stopBy', 'end', 'endAge'];
+    const STOP_LABELS = { end: 'Last paid' };
     const P = (cat, role, id, name, icon, extra = {}) => ({ cat, role, id, name, icon, ...extra });
 
     // A new link into a spending module starts at 0 with this timing.
@@ -194,18 +217,19 @@
 
     const PRESETS = [
         // Income
-        // Only a one-time income takes a date; the rest run for the whole plan.
+        // Only a one-time income takes a date. The rest run for the whole plan
+        // unless set to stop (STOPS).
         P('income', 'source', 'salary', 'Salary', 'briefcase', {
             defaults: { per: 'year' },
             fixed: { payMonth: 0 },          // a yearly salary is paid out monthly
-            fields: ['amount', 'per', 'growth', 'tax'],
-            labels: { tax: 'Income tax' },
+            fields: ['amount', 'per', 'growth', 'tax', ...STOPS],
+            labels: { tax: 'Income tax', ...STOP_LABELS },
             keywords: 'job wage pay employment freelance contract consulting side hustle' }),
         P('income', 'source', 'paycheck', 'Paycheck', 'money', {
             defaults: { per: 'biweek' },
             fixed: { tax: 0 },               // take-home pay is already after tax
-            fields: ['amount', 'per', 'payMonth', 'growth'],
-            labels: { amount: 'Take-home' },
+            fields: ['amount', 'per', 'payMonth', 'growth', ...STOPS],
+            labels: { amount: 'Take-home', ...STOP_LABELS },
             keywords: 'net pay biweekly job gig allowance support royalties other income tax refund irs return' }),
         P('income', 'source', 'one-time-income', 'One-time income', 'sparkle', {
             fixed: { per: 'once' },
@@ -227,26 +251,20 @@
 
         // Retirement and investing. Every holding is a balance that grows at an
         // expected return, so one module covers stocks, funds, bonds, crypto and
-        // gold. What sets the retirement accounts apart is when tax is paid:
-        // before the money goes in (pre-tax) or already paid (tax-free growth).
-        // A 401(k) is the pre-tax account an employer adds to; every other
-        // tax-advantaged account (IRA, HSA, 529) is one module whose
-        // Contributions setting says which.
+        // gold. What sets the Retirement Account apart is that pay sent to it is
+        // pre-tax and an employer may add to it (401(k), Traditional IRA, HSA).
+        // Anything paid from take-home pay (a Roth IRA, a 529, a brokerage) is
+        // an Investment, which may be locked until a date like any account.
         P('accounts', 'account', '401k', 'Retirement Account', 'piggy-bank', {
             pretax: true,
             employerMatch: true,
             fields: ['balance', 'minBalance', 'rate', 'lockUntil', 'capYearly', 'match', 'matchLimit'],
             labels: { rate: 'Expected return', capYearly: 'Yearly contribution limit' },
-            keywords: '401k 403b 457 tsp workplace retirement employer match pre-tax free money' }),
-        P('accounts', 'account', 'tax-advantaged-account', 'Tax-advantaged account', 'tree-evergreen', {
-            taxChoice: true,
-            fields: ['balance', 'minBalance', 'rate', 'lockUntil', 'capYearly', 'contributions'],
-            labels: { rate: 'Expected return' },
-            keywords: 'traditional ira roth ira hsa health savings account 529 plan college education savings retirement pre-tax tax-free' }),
+            keywords: '401k 403b 457 tsp workplace retirement employer match pre-tax free money traditional ira hsa health savings account' }),
         P('accounts', 'account', 'investment', 'Investment', 'chart-line-up', {
-            fields: ['balance', 'minBalance', 'rate'],
+            fields: ['balance', 'minBalance', 'rate', 'lockUntil'],
             labels: { rate: 'Expected return' },
-            keywords: 'brokerage stocks etf index fund s&p 500 bonds treasury t-bills crypto bitcoin reit gold invest taxable' }),
+            keywords: 'brokerage stocks etf index fund s&p 500 bonds treasury t-bills crypto bitcoin reit gold invest taxable roth ira 529 plan college education retirement tax-free' }),
 
         // Spending. Every expense consumes what arrives. It may have a cost of
         // its own, on a schedule like income's; a link set to the cost pays it.
@@ -272,25 +290,20 @@
         P('debt', 'debt', 'loan', 'Loan', 'handshake', {
             fields: DEBT_FIELDS,
             labels: { balance: 'Balance owed', rate: 'APR' },
-            keywords: 'mortgage student car auto personal home equity heloc medical bnpl buy now pay later installment borrow' }),
+            keywords: 'mortgage student car auto personal home house property real estate vehicle asset equity heloc medical bnpl buy now pay later installment borrow' }),
 
-        // Modifiers
-        P('modifiers', 'modifier', 'living', 'Budget Group', 'folder', {
+        // Group: a modifier that changes nothing, shelved and coloured on its own.
+        P('groups', 'modifier', 'living', 'Budget Group', 'folder', {
             kind: 'group',
             fields: [],
             keywords: 'living expenses cost of living spending budget group category split' }),
-        P('modifiers', 'modifier', 'tax-or-fee', 'Tax or fee', 'percent', {
-            kind: 'skim',
-            fields: ['rate'],
-            labels: { rate: 'Rate' },
-            keywords: 'tax withholding income capital gains fee advisor commission cost' }),
     ];
 
     const PRESET_BY_ID = Object.create(null);
     for (const p of PRESETS) {
         if (PRESET_BY_ID[p.id]) throw new Error(`duplicate preset id ${p.id}`);
         if (!ROLES[p.role]) throw new Error(`preset ${p.id}: unknown role ${p.role}`);
-        if (p.role === 'modifier' && !['skim', 'group'].includes(p.kind)) {
+        if (p.role === 'modifier' && p.kind !== 'group') {
             throw new Error(`preset ${p.id}: modifier needs a kind`);
         }
         PRESET_BY_ID[p.id] = p;
@@ -329,7 +342,7 @@
     }
 
     return {
-        ROLES, ROLE_ORDER, LINK_TARGETS, FIELDS, PER_MONTH, ROLE_FIELDS,
+        ROLES, ROLE_ORDER, SWATCHES, swatchOf, LINK_TARGETS, FIELDS, PER_MONTH, ROLE_FIELDS,
         CATEGORIES, PRESETS, preset, iconChoices, fieldsFor, fieldLabel, defaultParams,
     };
 }));

@@ -150,12 +150,6 @@
 .tag--warning { background: var(--color-warning-bg); border-color: var(--color-warning-border); color: var(--color-warning-text); }
 .tag--error { background: var(--color-error-bg); border-color: var(--color-error-border); color: var(--color-error-text); }
 .tag--processing { background: var(--color-info-bg); border-color: var(--color-info-border); color: var(--color-info-text); }
-/* A tag in a module's role colour ([data-role] sets --tile). */
-.tag--role {
-    background: color-mix(in srgb, var(--tile) 10%, transparent);
-    border-color: color-mix(in srgb, var(--tile) 35%, transparent);
-    color: color-mix(in srgb, var(--tile) 82%, var(--color-text));
-}
 /* Ant's borderless tag. */
 .tag--plain { border-color: transparent; }
 

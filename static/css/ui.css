@@ -167,6 +167,7 @@
 [data-role="expense"]  { --tile: var(--role-expense); }
 [data-role="debt"]     { --tile: var(--role-debt); }
 [data-role="modifier"] { --tile: var(--role-modifier); }
+[data-role="group"]    { --tile: var(--role-group); }
 
 /* ─── Dialog (confirm / prompt): Modal.confirm ─────────────────────────────── */
 .dialog { width: 416px; }

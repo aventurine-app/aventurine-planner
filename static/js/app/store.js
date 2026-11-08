@@ -15,6 +15,11 @@
 //   Store.editGoals(fn) the same for the goal list every plan shares.
 //   Store.setWorkspace  'plans' (the builder), 'goals', 'analyze' or 'compare'.
 //                       A preference of this browser, not part of any plan.
+//   Store.setYears(y)   the length every plan runs over (the 1Y–50Y chips in
+//                       the scrubber and Analyze). One length for all plans, so
+//                       switching plans keeps it; a preference of this
+//                       browser, like the workspace. A plan's own
+//                       settings.years is only the first visit's default.
 //   Store.applyRemote   another device's changes, from encrypted sync (web/sync.js)
 //   Store.setSync       sync's state, for the top bar
 //
@@ -36,6 +41,13 @@
     // The goal list's key in the dirty set and the undo history. Plan ids
     // cannot contain a colon, so it never meets one.
     const GOALS = ':goals';
+    const YEARS_KEY = 'plan-years';
+
+    /** The saved length, or null when none is saved (or it is out of range). */
+    function savedYears() {
+        const y = Number(Prefs.get(YEARS_KEY));
+        return Number.isInteger(y) && y >= 1 && y <= P.LIMITS.years ? y : null;
+    }
 
     const state = {
         status: null,
@@ -48,7 +60,8 @@
         preview: null,          // preset id shown in the inspector before it is added
         previewIcon: null,      // icon picked for the previewed preset; the module is added wearing it
         results: null,
-        scrub: null,            // month index under the chart cursor
+        years: savedYears(),    // every plan's run length; set from the first plan opened when none is saved
+        scrub: null,           // month index under the chart cursor
         save: 'saved',          // 'saved' | 'saving' | 'error'
         sync: 'off',            // 'off' | 'synced' | 'offline' | 'error' (web/sync.js)
         syncProblem: null,      // with 'error': 'vault_changed' | 'signed_out' | 'vault_full' | 'server'
@@ -86,13 +99,28 @@
             state.results = null;
         } else {
             try {
-                state.results = Engine.simulate(state.plan);
+                state.results = Engine.simulate(atLength(state.plan, state.years));
             } catch (e) {
                 console.error('[store] simulation failed', e);
                 state.results = null;
             }
         }
         emit('results');
+    }
+
+    /** The plan as the engine should run it: over `years`, without changing it. */
+    function atLength(plan, years) {
+        return years == null || years === plan.settings.years
+            ? plan
+            : { ...plan, settings: { ...plan.settings, years } };
+    }
+
+    function setYears(years) {
+        if (!Number.isInteger(years) || years < 1 || years > P.LIMITS.years || years === state.years) return;
+        state.years = years;
+        Prefs.set(YEARS_KEY, String(years));
+        state.scrub = null;
+        simulateNow();
     }
 
     function queueSimulation() {
@@ -480,6 +508,12 @@
     async function openPlan(id) {
         if (id === state.activeId && state.plan) return;
         const doc = await loadPlan(id);
+        // With no length saved yet, the first plan opened sets it, so a
+        // returning user keeps the length they had.
+        if (state.years == null) {
+            state.years = doc.settings.years;
+            Prefs.set(YEARS_KEY, String(state.years));
+        }
         state.activeId = id;
         state.plan = doc;
         state.selection = null;
@@ -715,6 +749,8 @@
                 l.id = P.newId('l');
                 l.from = ids.get(src.from);
                 l.to = ids.get(src.to);
+                // A start on a copied account's size follows the copy.
+                for (const s of [l, l.back]) if (s && s.startWhen && ids.has(s.startWhen.account)) s.startWhen.account = ids.get(s.startWhen.account);
                 plan.links.push(l);
             }
             return true;
@@ -730,6 +766,10 @@
             plan.links = plan.links.filter((l) => !gone.has(l.from) && !gone.has(l.to));
             // A card that paid its cash back into a removed account credits itself again.
             for (const n of plan.nodes) if (n.params && gone.has(n.params.cashBackTo)) n.params.cashBackTo = null;
+            // A flow waiting on a removed account's size waits to be told which.
+            for (const l of plan.links) {
+                for (const s of [l, l.back]) if (s && s.startWhen && gone.has(s.startWhen.account)) s.startWhen.account = null;
+            }
         });
     }
 
@@ -752,14 +792,14 @@
         return created;
     }
 
-    /** Drag a link's receiving end to another module, or to another dot of the
-     *  same one. Returns { ok } or { ok: false, reason }. */
-    function reconnect(id, toId, toSide) {
+    /** Drag one end of a link ('to' or 'from') to another module, or to another
+     *  dot of the same one. Returns { ok } or { ok: false, reason }. */
+    function reconnect(id, nodeId, side, end = 'to') {
         let result = { ok: false, reason: 'missing' };
         edit((plan) => {
             const l = plan.links.find((x) => x.id === id);
             if (!l) return false;
-            result = P.reconnect(plan, l, toId, toSide);
+            result = P.reconnect(plan, l, nodeId, side, end);
             return result.ok;
         });
         return result;
@@ -820,6 +860,6 @@
         renamePlan, deletePlan, reorderTabs, importPlan, exportPlan, exportAll, planName, getPlan,
         node, link, previewPreset, setPreviewIcon, addNode, duplicateNode, copyNodes, pasteNodes, removeNode, removeNodes,
         connect, reconnect, removeLink, goal, editGoals, addGoal, nextGoalColor, removeGoal, setWorkspace,
-        applyRemote, setSync,
+        applyRemote, setSync, setYears, atLength,
     };
 }());

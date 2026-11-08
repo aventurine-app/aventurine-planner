@@ -35,6 +35,10 @@ const UI_ICONS = [
     'x-circle', 'minus-circle', 'arrows-left-right', 'arrow-up', 'arrow-down',
     // Export: the PDF report, the spreadsheet, the plan file and Download All.
     'file-pdf', 'file-csv', 'file-code', 'file-zip',
+    // The bar's sync status: synced, not synced, offline, and a change on its way.
+    'cloud-check', 'cloud-warning', 'cloud-slash', 'cloud-arrow-up',
+    // The inspector's icon for a modifier (inspector.js ROLE_ICON).
+    'sliders-horizontal',
 ];
 
 // Each asset is one <svg> of <path d="…"/> elements. Anything

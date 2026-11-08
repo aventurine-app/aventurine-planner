@@ -13,14 +13,15 @@
 // the pointer; focusing one scrubs to its month; pressing it selects what the
 // first item is about. Issues that
 // belong to no month (a loop, money with no link) have no pin: the inspector
-// lists every issue. On the bar's right, the plan's length, as the chips Analyze shows.
+// lists every issue. On the bar's right, the length every plan runs over
+// (Store.setYears), as the chips Analyze shows.
 
 (function () {
     const root = document.getElementById('scrubber');
     if (!root) return;
 
     // The lengths on offer: the same as Analyze's (LENGTHS in outlook.js).
-    const LENGTHS = [1, 3, 5, 10, 20, 30, 40];
+    const LENGTHS = [1, 3, 5, 10, 20, 30, 40, 50];
 
     root.innerHTML = `
         <div class="scrub-lane">
@@ -41,7 +42,6 @@
             <div class="scrub-tip" aria-hidden="true" hidden></div>
         </div>
         <div class="scrub-length">
-            <span class="scrub-label" aria-hidden="true">Over</span>
             <div class="segctl segctl--chips" role="group" aria-label="Plan length">
                 ${LENGTHS.map((y) => `<button class="segctl-btn" type="button" data-years="${y}">${y}Y</button>`).join('')}
             </div>
@@ -98,7 +98,7 @@
         startEl.textContent = window.Describe.monthLabel(plan, 0);
         endEl.textContent = window.Describe.monthLabel(plan, n - 1);
         track.setAttribute('aria-valuemax', String(n));
-        lengthBtns.forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.years) === plan.settings.years)));
+        lengthBtns.forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.years) === Store.state.years)));
         drawPins(plan, res);
         place();
     }
@@ -131,6 +131,7 @@
         // it is charged clears in its first month but was never carried.
         for (const ms of res.milestones) {
             if (ms.code === 'paid-off' && res.nodes[ms.nodeId].balance[ms.month] > 0.005) add(ms.month, D.payoff(ms, plan));
+            else if (ms.code === 'stops') add(ms.month, D.incomeStop(ms, plan));
         }
         pins = [...byK.values()].sort((a, b) => a.k - b.k);
         const n = res.months;
@@ -259,7 +260,7 @@
 
     root.querySelector('.scrub-length').addEventListener('click', (e) => {
         const b = e.target.closest('[data-years]');
-        if (b) Store.edit((plan) => { plan.settings.years = Number(b.dataset.years); });
+        if (b) Store.setYears(Number(b.dataset.years));
     });
 
     Store.on((c) => {

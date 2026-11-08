@@ -76,7 +76,7 @@ async function sandbox(url, appTab) {
         await js('!!window.PrismDemo && CitrinePlan.LIMITS.nodes === 7 && CitrinePlan.LIMITS.goals === 1 && PrismDemo.LIMITS.plans === 1'));
     check('it starts with one blank plan', await js('Store.state.tabs.length === 1 && Store.state.plan.nodes.length === 0'));
     check('the plan is called Demo Plan and the bar says Demo',
-        await js(`Store.state.plan.name === 'Demo Plan' && document.querySelector('.titlebar-name').textContent === 'Aventurine Planner Demo'`));
+        await js(`Store.state.plan.name === 'Demo Plan' && document.querySelector('.titlebar-name').textContent === 'Aventurine Demo'`));
     check('the bar names it and shows what is left',
         await js(`document.querySelector('.titlebar-user-name').textContent === 'Free demo'
             && document.querySelector('[data-cap="modules"]').textContent.includes('0/7')`));

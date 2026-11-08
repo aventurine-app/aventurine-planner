@@ -41,7 +41,7 @@
     if (!TABLES.some(([v]) => v === tableView)) tableView = 'year';
     // The By year table's sort: a column and 'asc' or 'desc', or none (plan order).
     let yearSort = { key: null, dir: null };
-    const LENGTHS = [1, 3, 5, 10, 20, 30, 40];
+    const LENGTHS = [1, 3, 5, 10, 20, 30, 40, 50];
     // Net worth bands: at most this many per family before the rest fold
     // into "Other". Each band wears its module's role colour (style.css).
     const ACCOUNT_BANDS = 6;
@@ -61,8 +61,7 @@
         <div class="page scroll-y">
             ${K.pageHead({
                 start: K.planPick({ act: 'plan', label: 'Plan to analyze' }),
-                extra: `<span class="page-label" aria-hidden="true">Over</span>
-                    ${K.segmented(LENGTHS.map((y) => [y, `${y}Y`]), null, { attr: 'years', label: 'Plan length', chips: true })}`,
+                extra: K.segmented(LENGTHS.map((y) => [y, `${y}Y`]), null, { attr: 'years', label: 'Plan length', chips: true }),
             })}
             <div class="stat-cards" data-stats></div>
             <section class="card outlook-card" aria-label="Charts and tables">
@@ -120,7 +119,8 @@
     /** Account and debt bands in module order (never by size), folded into
      *  an "other" band past each family's limit. Each band wears its module's
      *  role colour (accounts blue, debts red); several of one role take
-     *  successive shades of it. */
+     *  successive shades of it. What a loan is secured by (a home, a car) is
+     *  a band of its own, above the accounts. */
     function worthBands(plan, res, def) {
         const bands = [];
         const accounts = plan.nodes.filter((n) => D.roleOf(n) === 'account');
@@ -139,6 +139,10 @@
             });
         };
         fold(accounts, ACCOUNT_BANDS, 1, 'Other accounts');
+        for (const n of debts) {
+            const value = res.nodes[n.id] && res.nodes[n.id].assetValue;
+            if (value) bands.push({ label: D.assetLabel(n), values: balances(value, def), sign: 1, id: n.id, role: 'asset' });
+        }
         if (res.unassigned.some((v) => v > 0.005)) {
             bands.push({ label: 'Unassigned', values: balances(res.unassigned, def), sign: 1 });
         }
@@ -234,7 +238,7 @@
     function drawFlow(plan, res, def) {
         const F = res.flows;
         const months = res.months;
-        const yearly = plan.settings.years >= 3;
+        const yearly = months >= 36;
         const size = yearly ? 12 : 1;
         const count = Math.ceil(months / size);
         const agg = (fn) => {
@@ -350,8 +354,8 @@
                     add(spending.items, n.name, total(r.consumed), n.id);
                     break;
                 case 'modifier':
-                    // What a budget group keeps is spending; a skim's cut is a tax or fee.
-                    add((r.kind === 'group' ? spending : fees).items, n.name, total(r.consumed), n.id);
+                    // What a budget group keeps is spending.
+                    add(spending.items, n.name, total(r.consumed), n.id);
                     break;
                 case 'account': {
                     add(left, `${n.name} match`, total(r.matched), n.id);
@@ -459,13 +463,18 @@
             const shown = neg ? -v : v;
             return td(shown, { negative: shown < -0.5 });
         };
-        const nameCell = (n) => `<th scope="row" class="is-sticky"><span class="cell-name"><span class="role-tile role-tile--sm" data-role="${D.roleOf(n)}">${iconSvg(P.iconOf(n))}</span>${esc(n.name)}</span></th>`;
+        const nameCell = (n) => `<th scope="row" class="is-sticky"><span class="cell-name"><span class="role-tile role-tile--sm" data-role="${D.swatchOf(n)}">${iconSvg(P.iconOf(n))}</span>${esc(n.name)}</span></th>`;
         let html = `<table class="data-table table--md"><caption class="sr-only">Balances</caption><thead><tr><th scope="col" class="is-sticky">Balance</th>${
             points.map((k) => `<th scope="col" class="is-num">${esc(label(plan, k))}</th>`).join('')}</tr></thead><tbody>`;
         for (const n of holders) {
             const b = res.nodes[n.id].balance;
             const neg = D.roleOf(n) === 'debt';
             html += `<tr>${nameCell(n)}${points.map((k) => cell(b[k] * def[k], neg)).join('')}</tr>`;
+            const value = res.nodes[n.id].assetValue;
+            if (value) {
+                html += `<tr><th scope="row" class="is-sticky"><span class="cell-name"><span class="role-tile role-tile--sm" data-role="account">${iconSvg(P.iconOf(n))}</span>${esc(D.assetLabel(n))}</span></th>${
+                    points.map((k) => cell(value[k] * def[k], false)).join('')}</tr>`;
+            }
         }
         if (res.unassigned.some((v) => v > 0.005)) {
             html += `<tr><th scope="row" class="is-sticky">Unassigned</th>${points.map((k) => cell(res.unassigned[k] * def[k], false)).join('')}</tr>`;
@@ -476,22 +485,28 @@
 
     function linksTable(plan, res, def) {
         const months = res.months;
+        // A two-way link's way back is a row of its own, running the other way.
         const linksSorted = plan.links
-            .map((l) => ({ l, r: res.links[l.id] }))
-            .filter((x) => x.r)
+            .flatMap((l) => {
+                const r = res.links[l.id];
+                const from = Store.node(l.from);
+                const to = Store.node(l.to);
+                if (!r || !from || !to) return [];
+                const rows = [{ r, from, to, rule: D.linkShort(l, from) }];
+                if (r.back) rows.push({ r: r.back, from: to, to: from, rule: D.backShort(l, to) });
+                return rows;
+            })
             .sort((a, b) => b.r.total - a.r.total);
         let html = `<table class="data-table table--md"><caption class="sr-only">Money moved</caption><thead><tr><th scope="col" class="is-sticky">Money moved</th>
             <th scope="col">Rule</th><th scope="col" class="is-num">Total</th><th scope="col" class="is-num">Average a month</th><th scope="col">First</th><th scope="col">Last</th></tr></thead><tbody>`;
-        for (const { l, r } of linksSorted) {
-            const from = Store.node(l.from);
-            const to = Store.node(l.to);
+        for (const { r, from, to, rule } of linksSorted) {
             let total = 0;
             for (let m = 0; m < r.flow.length; m++) total += r.flow[m] * def[m + 1];
             const first = r.flow.findIndex((v) => v > 0.005);
             let lastIdx = -1;
             for (let m = r.flow.length - 1; m >= 0; m--) if (r.flow[m] > 0.005) { lastIdx = m; break; }
             html += `<tr><th scope="row" class="is-sticky">${esc(from.name)} → ${esc(to.name)}</th>
-                <td>${esc(D.linkShort(l, from))}</td>
+                <td>${esc(rule)}</td>
                 ${td(total)}${td(total / months)}
                 <td>${first >= 0 ? esc(label(plan, first)) : '<span class="is-muted">Never</span>'}</td>
                 <td>${lastIdx >= 0 ? esc(label(plan, lastIdx)) : '<span class="is-muted">Never</span>'}</td></tr>`;
@@ -519,7 +534,7 @@
             b.setAttribute('aria-selected', String(on));
             b.tabIndex = on ? 0 : -1;
         });
-        root.querySelectorAll('[data-years]').forEach((b) => b.setAttribute('aria-pressed', String(!!plan && Number(b.dataset.years) === plan.settings.years)));
+        root.querySelectorAll('[data-years]').forEach((b) => b.setAttribute('aria-pressed', String(!!plan && Number(b.dataset.years) === Store.state.years)));
         root.querySelectorAll('[data-table]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.table === tableView)));
         spanBtn.hidden = view !== 'sankey';
         tableViews.hidden = view !== 'table';
@@ -562,7 +577,7 @@
         if (y) {
             const years = Number(y.dataset.years);
             sankeyYear = -1;
-            Store.edit((plan) => { plan.settings.years = years; });
+            Store.setYears(years);
             return;
         }
         const t = e.target.closest('[data-table]');

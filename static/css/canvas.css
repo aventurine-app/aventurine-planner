@@ -120,6 +120,11 @@
 .link.is-active .link-path { stroke-width: 4.5px; stroke-opacity: 0.5; stroke: var(--color-primary); }
 .link-flow.is-active { stroke: var(--color-primary); stroke-width: 7px; }
 .link.is-dim .link-path { stroke-opacity: 0.18; }
+/* A flow whose end is being dragged off its module: only a faint trace of
+   where it was stays, while the ghost shows where it is going. */
+.link.is-moving .link-path { stroke-opacity: 0.18; stroke-dasharray: 4 6; }
+.link-flow.is-moving,
+.link-label.is-moving { visibility: hidden; }
 
 .link-label[hidden] { display: none; }
 
@@ -170,6 +175,34 @@
 .link-label.is-short { border-color: var(--color-warning-border); background: var(--color-warning-bg); color: var(--color-warning-text); }
 .link-label.is-dim { opacity: 0.3; }
 .link-label:focus-visible { outline: 4px solid var(--color-primary-border); outline-offset: 1px; }
+
+/* A link's tag holds one half; a two-way link's holds two, one for each
+   direction, each led by an arrow along the line. */
+.link-half { display: inline-flex; align-items: center; gap: 5px; }
+.link-half[hidden] { display: none; }
+.link-arrow { display: none; }
+
+/* ── Two-way links ──────────────────────────────────────────────────────── */
+/* One purple line that turns around: its dots run toward the target until
+   it turns, then back toward the source. Its tag has a half per direction,
+   and the half running at the scrubbed month is filled. */
+.link.is-twoway .link-path,
+.link.is-twoway.is-active .link-path { stroke: var(--link-twoway); stroke-opacity: 0.75; }
+.link-flow.is-twoway,
+.link-flow.is-twoway.is-active { stroke: var(--link-twoway); }
+.link-flow.is-back { animation-direction: reverse; }
+.link-label.is-twoway {
+    gap: 0;
+    padding: 0;
+    overflow: hidden;
+    border-color: color-mix(in srgb, var(--link-twoway) 55%, var(--color-border));
+}
+.link-label.is-twoway::before { display: none; }
+.link-label.is-twoway .link-half { height: 100%; padding: 0 7px; color: var(--color-text-tertiary); }
+.link-label.is-twoway .link-half + .link-half { border-left: var(--line-width) solid color-mix(in srgb, var(--link-twoway) 35%, var(--color-border)); }
+.link-label.is-twoway .link-half.is-live { background: color-mix(in srgb, var(--link-twoway) 14%, var(--color-bg-container)); color: var(--color-text); }
+.link-label.is-twoway .link-arrow { display: inline; color: var(--link-twoway); font-weight: 700; }
+.link-label.is-twoway.is-selected { border-color: var(--link-twoway); box-shadow: 0 0 0 2px color-mix(in srgb, var(--link-twoway) 25%, transparent); }
 
 /* ── Module cards ───────────────────────────────────────────────────────────
    The cards keep their own design, from before the Ant Design conversion: a
@@ -409,7 +442,7 @@ html[data-theme="dark"] { --node-tint: 14%; --node-edge: 30%; --node-active-ring
 .node[data-role="debt"] .node-port--in { cursor: pointer; }
 .node[data-role="debt"] .node-port--in::after { content: ''; position: absolute; inset: -6px; border-radius: 50%; }
 
-/* The grip on the selected flow's receiving end. */
+/* The grips on the selected flow's two ends. */
 .link-handle {
     position: absolute;
     width: 16px;
@@ -528,7 +561,6 @@ html[data-theme="dark"] { --node-tint: 14%; --node-edge: 30%; --node-active-ring
     background: var(--color-bg-container);
     border-top: var(--line-width) solid var(--color-border-secondary);
 }
-.scrub-label { color: var(--color-text-secondary); font-size: var(--font-size); }
 
 /* The track, with the pins laid over it. */
 .scrub-lane {

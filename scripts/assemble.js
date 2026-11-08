@@ -97,7 +97,7 @@ function assembleDemoPage({ version = readVersion() } = {}) {
     for (const add of DEMO_ADDED) if (!added.has(add.file)) throw new Error(`the sandbox page could not place ${add.file}`);
     for (const file of Object.values(DEMO_REPLACED)) if (!html.includes(`${DEMO_JS_BASE}${file}`)) throw new Error(`the sandbox page could not place ${file}`);
 
-    html = replaceOnce(html, '<title>Aventurine Planner</title>', '<title>Aventurine Planner | Free Demo</title>');
+    html = replaceOnce(html, '<title>Aventurine</title>', '<title>Aventurine - Free Demo</title>');
     html = replaceOnce(html, '<link rel="stylesheet" href="/static/css/compare.css">', '<link rel="stylesheet" href="/static/css/compare.css">\n    <link rel="stylesheet" href="/static/css/demo.css">');
     return html;
 }

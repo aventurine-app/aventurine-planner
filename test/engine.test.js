@@ -47,7 +47,7 @@ function run(plan) {
     const r = simulate(Plan.validatePlan(plan));
     const T = r.totals;
     const delta = T.endNetWorth - T.startNetWorth;
-    const expected = T.earned - T.withheld + T.match + T.cashback + T.growth
+    const expected = T.earned - T.withheld + T.match + T.cashback + T.growth + T.acquired
         - T.interest - T.spent - T.skimmed;
     assert.ok(Math.abs(delta - expected) <= 1e-6 * Math.max(1, Math.abs(expected)),
         `money not conserved: net worth moved ${delta}, flows explain ${expected}`);
@@ -109,7 +109,7 @@ test('withholding, raises and an income window', () => {
     const plan = mkPlan('2026-01', 3);
     const sink = node(plan, 'expense');
     const salary = node(plan, 'salary', {
-        amount: 1000, per: 'month', growth: 10, tax: 20, start: '2026-04', end: '2027-06',
+        amount: 1000, per: 'month', growth: 10, tax: 20, start: '2026-04', stopBy: 'date', end: '2027-06',
     });
     link(plan, salary, sink);
     const r = run(plan);
@@ -177,7 +177,7 @@ test('money with no link lands in Unassigned and still counts toward net worth',
 
 test('a fixed amount from income that ends is reported short, not silently dropped', () => {
     const plan = mkPlan('2026-01', 1);
-    const pay = node(plan, 'paycheck', { amount: 3000, per: 'month', end: '2026-06' });
+    const pay = node(plan, 'paycheck', { amount: 3000, per: 'month', stopBy: 'date', end: '2026-06' });
     const rent = node(plan, 'expense');
     const l = link(plan, pay, rent, { mode: 'fixed', value: 1000 });
     const r = run(plan);
@@ -217,7 +217,7 @@ test('an account keeps what arrives: only its balance moves on', () => {
 
 test('a fixed link out of a balance keeps paying past zero and says when the account is overdrawn', () => {
     const plan = mkPlan('2026-01', 1);
-    const pay = node(plan, 'paycheck', { amount: 1000, per: 'month', end: '2026-02' });
+    const pay = node(plan, 'paycheck', { amount: 1000, per: 'month', stopBy: 'date', end: '2026-02' });
     const checking = node(plan, 'bank-account', { balance: 2000, rate: 0 });
     const rent = node(plan, 'expense');
     link(plan, pay, checking);
@@ -403,12 +403,31 @@ test('a locked account moves nothing until it unlocks', () => {
 test('a yearly deposit limit parks the excess in Unassigned', () => {
     const plan = mkPlan('2026-01', 1);
     const pay = node(plan, 'paycheck', { amount: 1000, per: 'month' });
-    const ira = node(plan, 'tax-advantaged-account', { balance: 0, rate: 0, capYearly: 7000 });
+    const ira = node(plan, '401k', { balance: 0, rate: 0, capYearly: 7000 });
     link(plan, pay, ira, { mode: 'fixed', value: 1000 });
     const r = run(plan);
     close(last(r.nodes[ira.id].balance), 7000);
     close(last(r.unassigned), 5000);
     assert.ok(codes(r).includes('cap'));
+});
+
+test('a yearly limit an account does not show is not applied', () => {
+    const plan = mkPlan('2026-01', 1);
+    const pay = node(plan, 'paycheck', { amount: 1000, per: 'month' });
+    const brokerage = node(plan, 'investment', { balance: 0, rate: 0, capYearly: 1000 });
+    link(plan, pay, brokerage);
+    const r = run(plan);
+    close(last(r.nodes[brokerage.id].balance), 12000);
+});
+
+test('a locked Investment sends nothing from its balance until it unlocks', () => {
+    const plan = mkPlan('2026-01', 1);
+    const brokerage = node(plan, 'investment', { balance: 10000, rate: 0, lockUntil: '2026-07' });
+    const checking = node(plan, 'bank-account', { balance: 0, rate: 0 });
+    const l = link(plan, brokerage, checking, { basis: 'balance', mode: 'fixed', value: 1000 });
+    const r = run(plan);
+    assert.equal(r.links[l.id].flow.slice(0, 6).reduce((a, b) => a + b, 0), 0);
+    close(r.links[l.id].total, 6000);
 });
 
 // ── Debts ────────────────────────────────────────────────────────────────────
@@ -494,7 +513,262 @@ test('a loan dated inside the plan pays out its proceeds: borrowing leaves net w
     close(r.netWorth[3], 0);
 });
 
-// ── Modifiers ────────────────────────────────────────────────────────────────
+// ── Income that stops ────────────────────────────────────────────────────────
+
+test('a salary set to stop on a date pays through its Last paid month and no further', () => {
+    const plan = mkPlan('2026-01', 2);
+    const salary = node(plan, 'salary', { amount: 12000, per: 'year', stopBy: 'date', end: '2026-06' });
+    const savings = node(plan, 'bank-account', { balance: 0, rate: 0 });
+    link(plan, salary, savings);
+    const r = run(plan);
+    close(r.nodes[salary.id].gross[5], 1000);       // June
+    close(r.nodes[salary.id].gross[6], 0);          // July
+    close(r.totals.earned, 6000);
+    assert.ok(r.milestones.some((m) => m.code === 'stops' && m.nodeId === salary.id && m.month === 5));
+});
+
+test('a paycheck set to stop at an age pays until the month the person turns it', () => {
+    const plan = mkPlan('2026-01', 3);
+    plan.settings.age = 63.5;                       // turns 65 eighteen months in
+    const pay = node(plan, 'paycheck', { amount: 1000, per: 'month', stopBy: 'age', endAge: 65 });
+    const savings = node(plan, 'bank-account', { balance: 0, rate: 0 });
+    link(plan, pay, savings);
+    const r = run(plan);
+    close(r.nodes[pay.id].gross[17], 1000);
+    close(r.nodes[pay.id].gross[18], 0);
+    close(r.totals.earned, 18000);
+    assert.ok(r.milestones.some((m) => m.code === 'stops' && m.month === 17));
+});
+
+test('an age stop in a plan with no age runs on and is flagged', () => {
+    const plan = mkPlan('2026-01', 1);
+    const pay = node(plan, 'paycheck', { amount: 1000, per: 'month', stopBy: 'age', endAge: 65 });
+    link(plan, pay, node(plan, 'bank-account', { balance: 0, rate: 0 }));
+    const r = run(plan);
+    close(r.totals.earned, 12000);
+    assert.ok(r.warnings.some((w) => w.code === 'stop-no-age' && w.nodeId === pay.id));
+});
+
+test('an income that stops before the plan starts pays nothing and is flagged', () => {
+    const plan = mkPlan('2026-01', 1);
+    plan.settings.age = 70;
+    const pay = node(plan, 'paycheck', { amount: 1000, per: 'month', stopBy: 'age', endAge: 65 });
+    link(plan, pay, node(plan, 'bank-account', { balance: 0, rate: 0 }));
+    const r = run(plan);
+    close(r.totals.earned, 0);
+    assert.ok(r.warnings.some((w) => w.code === 'stopped-before' && w.nodeId === pay.id));
+});
+
+test('a stop setting left on Never, or with no date or age filled in, runs for the whole plan', () => {
+    const plan = mkPlan('2026-01', 1);
+    plan.settings.age = 40;
+    const a = node(plan, 'paycheck', { amount: 1000, per: 'month', stopBy: 'never', end: '2026-03', endAge: 41 });
+    const b = node(plan, 'paycheck', { amount: 1000, per: 'month', stopBy: 'date', end: null });
+    const c = node(plan, 'paycheck', { amount: 1000, per: 'month', stopBy: 'age', endAge: null });
+    const savings = node(plan, 'bank-account', { balance: 0, rate: 0 });
+    for (const n of [a, b, c]) link(plan, n, savings);
+    const r = run(plan);
+    close(r.totals.earned, 36000);
+    assert.ok(!r.milestones.some((m) => m.code === 'stops'));
+    assert.ok(!r.warnings.some((w) => w.code.startsWith('stop')));
+});
+
+// ── Two-way links ────────────────────────────────────────────────────────────
+
+/** Pay of 3,000 a month that stops after 2026; rent of 1,500 from Checking,
+ *  which keeps 1,000; Checking and a fund joined by a two-way link that saves
+ *  the rest and sends back `back`, which by default starts at 41 (January
+ *  2027, the plan's person being 40). */
+function twoWayPlan(back = {}, years = 3) {
+    const plan = mkPlan('2026-01', years);
+    plan.settings.age = 40;
+    const pay = node(plan, 'paycheck', { amount: 3000, per: 'month', stopBy: 'date', end: '2026-12' });
+    const chk = node(plan, 'bank-account', { balance: 0, rate: 0, minBalance: 1000 });
+    const fund = node(plan, 'investment', { balance: 0, rate: 0 });
+    link(plan, pay, chk);
+    link(plan, chk, node(plan, 'expense'), { basis: 'balance', mode: 'fixed', value: 1500 });
+    const l = link(plan, chk, fund, { basis: 'balance', mode: 'rest' });
+    l.back = { mode: 'fixed', value: 1500, when: 'monthly', month: 1, date: null, growth: 0,
+        startWhen: { kind: 'age', age: 41 }, ...back };
+    return { plan, pay, chk, fund, l };
+}
+
+test('a way back that starts at an age sends nothing before it, then its amount', () => {
+    const { plan, chk, fund, l } = twoWayPlan();
+    const r = run(plan);
+    const lr = r.links[l.id];
+    assert.equal(lr.started, undefined);                // the way out starts now
+    assert.equal(lr.back.started, 12);                  // January 2027, at 41
+    close(lr.back.flow[11], 0);
+    close(lr.back.flow[12], 1500);
+    close(r.nodes[fund.id].balance[12], 500 + 11 * 1500);   // the first month fills Checking to its 1,000
+    close(r.nodes[chk.id].balance[18], 1000);           // the way back pays the rent
+    assert.ok(!r.warnings.some((w) => w.code === 'no-start'));
+});
+
+test('a side\'s fixed amount rises each year from its start', () => {
+    const { plan, l } = twoWayPlan({ growth: 10 }, 3);
+    const r = run(plan);
+    close(r.links[l.id].back.flow[12], 1500);
+    close(r.links[l.id].back.flow[24], 1650);
+});
+
+test('a two-way link can send back a share of the balance, yearly', () => {
+    const { plan, l } = twoWayPlan({ mode: 'percent', value: 10, when: 'yearly', month: 1 });
+    const r = run(plan);
+    close(r.links[l.id].back.flow[12], 1700);           // 10% of 17,000 in January 2027
+    close(r.links[l.id].back.flow[13], 0);
+});
+
+test('pay that stops at an age and a way back that starts at it leave no gap, monthly or yearly', () => {
+    for (const when of ['monthly', 'yearly']) {
+        const { plan, pay, chk, l } = twoWayPlan({ when, value: 12000 });
+        plan.settings.age = 40 + 2 / 12;                // 41 in November 2026 (month 10)
+        Object.assign(pay.params, { stopBy: 'age', endAge: 41, end: null });
+        const r = run(plan);
+        const payFlow = r.links[plan.links[0].id].flow;
+        const back = r.links[l.id].back.flow;
+        assert.ok(payFlow[9] > 0, `${when}: the last pay is in October`);
+        close(payFlow[10], 0);
+        close(back[9], 0);
+        close(back[10], 12000);                         // sent back the month the pay stops
+        close(back[11], when === 'monthly' ? 12000 : 0);
+        close(back[22], 12000);                         // and a year on
+        assert.ok(r.nodes[chk.id].balance[12] >= 1000, `${when}: Checking keeps its 1,000`);
+    }
+});
+
+test('a way back starts when an account reaches a size, and keeps running', () => {
+    // The fund gets 500, then 1,500 a month: 11,000 at the end of August 2026.
+    const { plan, fund, l } = twoWayPlan({ value: 100, startWhen: { kind: 'balance', account: null, amount: 10000 } });
+    l.back.startWhen.account = fund.id;
+    const r = run(plan);
+    const back = r.links[l.id].back;
+    assert.equal(back.started, 8);
+    close(back.flow[7], 0);
+    close(back.flow[8], 100);
+    close(back.flow[30], 100);                          // the fund drops below 10,000 later; it keeps going
+});
+
+test('a side sent once with a start is sent the month it starts, and only then', () => {
+    const { plan, l } = twoWayPlan({ when: 'once', value: 5000 });
+    const r = run(plan);
+    close(r.links[l.id].back.flow[11], 0);
+    close(r.links[l.id].back.flow[12], 5000);
+    close(r.links[l.id].back.total, 5000);
+});
+
+test('a side sent once starting now goes on its own date', () => {
+    const { plan, l } = twoWayPlan({ when: 'once', value: 5000, date: '2027-06', startWhen: null });
+    const r = run(plan);
+    close(r.links[l.id].back.flow[17], 5000);
+    close(r.links[l.id].back.total, 5000);
+});
+
+test('a way back starting now runs side by side with the way out', () => {
+    const { plan, fund, l } = twoWayPlan({ value: 100, startWhen: null });
+    fund.params.balance = 10000;
+    const r = run(plan);
+    const lr = r.links[l.id];
+    assert.equal(lr.back.started, undefined);
+    close(lr.back.flow[0], 100);
+    close(lr.back.flow[30], 100);
+    assert.ok(lr.flow[5] > 0);
+});
+
+test('the way out can wait for a start of its own', () => {
+    const { plan, l } = twoWayPlan({ startWhen: null, value: 0 });
+    l.startWhen = { kind: 'age', age: 40.5 };           // July 2026
+    const r = run(plan);
+    assert.equal(r.links[l.id].started, 6);
+    close(r.links[l.id].flow[5], 0);
+    assert.ok(r.links[l.id].flow[6] > 0);
+});
+
+test('a side that never starts says why', () => {
+    const why = (plan, l) => run(plan).warnings.filter((w) => w.code === 'no-start' && w.linkId === l.id).map((w) => [w.why, !!w.back]);
+    const a = twoWayPlan();
+    a.plan.settings.age = null;
+    assert.deepEqual(why(a.plan, a.l), [['no-age', true]]);
+    assert.equal(run(a.plan).links[a.l.id].back.started, null);
+    const b = twoWayPlan({ startWhen: { kind: 'balance', account: null, amount: 1000 } });
+    assert.deepEqual(why(b.plan, b.l), [['no-account', true]]);
+    const c = twoWayPlan({ startWhen: { kind: 'balance', account: null, amount: 1e9 } });
+    c.l.back.startWhen.account = c.fund.id;
+    assert.deepEqual(why(c.plan, c.l), [['unreached', true]]);
+});
+
+test('the way back out of a locked account falls short until it unlocks', () => {
+    const { plan, fund, l } = twoWayPlan();
+    fund.params.lockUntil = '2027-04';
+    const r = run(plan);
+    close(r.links[l.id].back.flow[14], 0);
+    close(r.links[l.id].back.flow[15], 1500);
+    const short = r.warnings.find((w) => w.code === 'short' && w.back);
+    assert.equal(short.linkId, l.id);
+    assert.equal(short.nodeId, fund.id);
+    assert.equal(short.month, 12);
+});
+
+// ── Assets a loan is secured by ──────────────────────────────────────────────
+
+test('a mortgage\'s home counts toward net worth and appreciates, with nothing flowing through it', () => {
+    const plan = mkPlan('2026-01', 2);
+    const mortgage = node(plan, 'loan', { balance: 300000, rate: 0, asset: 400000, assetRate: 3 });
+    const r = run(plan);
+    const home = r.nodes[mortgage.id].assetValue;
+    close(home[0], 400000);
+    close(home[12], 412000);             // an effective annual rate, like an account's
+    close(home[24], 400000 * 1.03 * 1.03);
+    close(r.netWorth[0], 100000);        // the equity
+    close(r.totals.growth, home[24] - 400000);
+    close(r.nodes[mortgage.id].totals.assetGrowth, home[24] - 400000);
+    close(r.totals.acquired, 0);         // owned before the plan began
+    close(r.nodes[mortgage.id].totals.in, 0);
+    close(r.nodes[mortgage.id].totals.out, 0);
+});
+
+test('a car loses value at a negative rate and stays after the loan is paid off', () => {
+    const plan = mkPlan('2026-01', 3);
+    const pay = node(plan, 'paycheck', { amount: 5000, per: 'month' });
+    const savings = node(plan, 'bank-account', { balance: 0, rate: 0 });
+    const carLoan = node(plan, 'loan', { balance: 12000, rate: 0, term: 1, asset: 30000, assetRate: -15 });
+    link(plan, pay, carLoan, { mode: 'fixed', value: 1000 });
+    link(plan, pay, savings);
+    const r = run(plan);
+    const car = r.nodes[carLoan.id].assetValue;
+    close(r.nodes[carLoan.id].balance[12], 0);
+    close(car[12], 25500);
+    close(car[36], 30000 * Math.pow(0.85, 3));
+    assert.ok(r.totals.growth < 0);
+});
+
+test('a loan dated inside the plan brings its asset in when it starts: buying a home', () => {
+    const plan = mkPlan('2026-01', 1);
+    const savings = node(plan, 'bank-account', { balance: 100000, rate: 0 });
+    const mortgage = node(plan, 'loan', { balance: 320000, rate: 0, start: '2026-03', asset: 400000, assetRate: 0 });
+    const purchase = node(plan, 'one-time-expense', { cost: 400000, start: '2026-03' });
+    link(plan, mortgage, purchase, { basis: 'proceeds', mode: 'rest', when: 'once' });
+    link(plan, savings, purchase, { basis: 'balance', mode: 'fixed', value: 80000, when: 'once', date: '2026-03' });
+    const r = run(plan);
+    const home = r.nodes[mortgage.id].assetValue;
+    assert.equal(home[2], 0);            // not bought yet
+    close(home[3], 400000);
+    close(r.totals.acquired, 400000);
+    // Paying 400,000 for a home worth 400,000 leaves net worth where it was.
+    close(r.netWorth[2], 100000);
+    close(r.netWorth[3], 100000);
+});
+
+test('a credit card is never secured by an asset', () => {
+    const plan = mkPlan('2026-01', 1);
+    const card = node(plan, 'credit-card', { balance: 0, rate: 0, asset: 50000 });
+    const r = run(plan);
+    assert.equal(r.nodes[card.id].assetValue, undefined);
+    close(r.netWorth[0], 0);
+});
+
+// ── Cards and retirement accounts ────────────────────────────────────────────
 
 test('a credit card pays for spending: purchases raise the balance, cash back lowers it', () => {
     const plan = mkPlan('2026-01', 1);
@@ -548,7 +822,7 @@ test('a payment from income pays a card off, and what it cannot take stays with 
 test('a 401(k) contribution comes out of gross pay, before withholding', () => {
     const plan = mkPlan('2026-01', 1);
     const salary = node(plan, 'salary', { amount: 100000, per: 'year', tax: 22 });
-    const k = node(plan, 'tax-advantaged-account', { contributions: 'pre' });
+    const k = node(plan, '401k');
     const savings = node(plan, 'bank-account');
     link(plan, salary, k, { mode: 'percent', value: 6 });
     link(plan, salary, savings, { mode: 'rest' });
@@ -611,7 +885,7 @@ test('a 401(k) matches only pay, not transfers, and only on a 401(k)', () => {
     const plan = mkPlan('2026-01', 1);
     const savings = node(plan, 'bank-account', { balance: 12000 });
     const k = node(plan, '401k', { match: 100 });
-    const ira = node(plan, 'tax-advantaged-account', { contributions: 'pre', match: 100 });    // hidden setting: ignored
+    const ira = node(plan, 'investment', { match: 100 });    // hidden setting: ignored
     const pay = node(plan, 'paycheck', { amount: 1000, per: 'month' });
     link(plan, savings, k, { basis: 'balance', mode: 'fixed', value: 500 });
     link(plan, pay, ira, { mode: 'rest' });
@@ -621,10 +895,10 @@ test('a 401(k) matches only pay, not transfers, and only on a 401(k)', () => {
     close(r.totals.match, 0);
 });
 
-test('a Roth IRA is paid from take-home pay', () => {
+test('an Investment (a Roth IRA, say) is paid from take-home pay', () => {
     const plan = mkPlan('2026-01', 1);
     const salary = node(plan, 'salary', { amount: 100000, per: 'year', tax: 22 });
-    const roth = node(plan, 'tax-advantaged-account', { contributions: 'after' });
+    const roth = node(plan, 'investment');
     link(plan, salary, roth, { mode: 'percent', value: 6 });
     link(plan, salary, node(plan, 'expense'), { mode: 'rest' });
     const r = run(plan);
@@ -659,18 +933,6 @@ test('a match does not count toward the yearly contribution limit, and matches o
     close(r.totals.match, 6000);                   // each accepted deposit matched, none past it
     close(last(r.nodes[k401.id].balance), 12000);
     assert.ok(codes(r).includes('cap'));
-});
-
-test('a tax modifier takes its cut and passes the rest on', () => {
-    const plan = mkPlan('2026-01', 1);
-    const pay = node(plan, 'paycheck', { amount: 1000, per: 'month' });
-    const tax = node(plan, 'tax-or-fee', { rate: 20 });
-    const savings = node(plan, 'bank-account', { balance: 0, rate: 0 });
-    link(plan, pay, tax);
-    link(plan, tax, savings);
-    const r = run(plan);
-    close(last(r.nodes[savings.id].balance), 9600);
-    close(r.totals.skimmed, 2400);
 });
 
 // ── Links over time ──────────────────────────────────────────────────────────

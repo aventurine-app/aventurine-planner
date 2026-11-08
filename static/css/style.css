@@ -153,22 +153,30 @@
 
 /* ─── 3. Module roles and chart colours ─────────────────────────────────────
  * Every module wears its ROLE's colour (catalog.js): its avatar, its ports and
- * its bar. Five roles, five Ant hues: cyan is money arriving, blue money held,
- * gold money leaving, red money owed, purple money changing on the way through.
+ * its bar. Five roles, five Ant hues: green is money arriving, blue money held,
+ * gold money leaving, red money owed, teal (Ant's cyan) money changing on the
+ * way through.
+ * A budget group, which only splits, wears a neutral grey (catalog.js, swatchOf).
  *
  * Picked from Ant's palettes with the dataviz validator against the card
  * surface, all pairs, since any two roles can sit side by side on the canvas
  * (.scratch/rainbow/roles-antd.mjs). Light: cyan-7, blue-6, gold-8, red-8,
- * purple-6 pass every check (CVD 9.9, normal 16.8, contrast 3.5:1 or more).
- * Green would read as gold to protan eyes (ΔE 0.4), so income is Ant's cyan.
+ * purple-6 passed every check (CVD 9.9, normal 16.8, contrast 3.5:1 or more).
+ * Since moved: Income to green-7 (3.5:1) and Modifiers to cyan-7. Green-7
+ * against Spending's gold-8 is only ΔE 2.9 under simulated protan/deutan
+ * vision (the other pairs are 13+), so colour alone may not tell income from
+ * spending for colour-blind users.
  * Dark (themes.css) passes all but the lightness band, as the earlier roles did. */
 :root,
 .settings-theme-swatch[data-theme="light"] {
-    --role-source:   var(--cyan-7);
+    --role-source:   var(--green-7);
     --role-account:  var(--blue-6);
     --role-expense:  var(--gold-8);
     --role-debt:     var(--red-8);
-    --role-modifier: var(--purple-6);
+    --role-modifier: var(--cyan-7);
+    /* A budget group only splits, so it wears a neutral, a step darker than
+       Unassigned's so the two stay apart. */
+    --role-group:    #636363;
 
     /* Unassigned money: no role, so it takes the neutral that recedes. */
     --role-none: #8c8c8c;
@@ -179,6 +187,9 @@
 
     /* Every link on the canvas, whatever it carries. */
     --link-line: var(--blue-4);
+    /* A two-way link (one that turns around): purple, so it reads apart from
+       the one-way blue. */
+    --link-twoway: var(--purple-6);
 
     /* Net worth bands wear the colour of the module they stand for: accounts
        blue, debts red, as on the canvas. Several of one role are told apart by
@@ -198,13 +209,21 @@
     --chart-debt-4: color-mix(in srgb, var(--red-6) 45%, white);
     --chart-debt-5: color-mix(in srgb, var(--red-6) 62%, black);
     --chart-debt-6: color-mix(in srgb, var(--red-6) 28%, white);
+    /* What a loan is secured by (a home, a car): green, apart from the
+       accounts, since it is worth something but is not money to spend. */
+    --chart-asset-1: var(--green-6);
+    --chart-asset-2: color-mix(in srgb, var(--green-6) 70%, white);
+    --chart-asset-3: color-mix(in srgb, var(--green-6) 80%, black);
+    --chart-asset-4: color-mix(in srgb, var(--green-6) 45%, white);
+    --chart-asset-5: color-mix(in srgb, var(--green-6) 62%, black);
+    --chart-asset-6: color-mix(in srgb, var(--green-6) 28%, white);
     --chart-unassigned: var(--role-none);
 
     /* Headline lines are the text colour, as in Ant's charts; the cash-flow
-       pair is the arriving cyan against the leaving gold. */
+       pair is the arriving green against the leaving gold. */
     --chart-networth:   var(--color-text);
     --chart-worth-line: var(--color-text);
-    --chart-in:         var(--cyan-6);
+    --chart-in:         var(--green-6);
     --chart-out:        var(--gold-6);
     --chart-growth:     var(--blue-6);
     --chart-interest:   var(--red-5);
@@ -213,23 +232,23 @@
     --chart-plan-a: var(--blue-6);
     --chart-plan-b: var(--orange-6);
 
-    /* The Sankey: money arriving on the cyan ramp, money leaving on the gold
+    /* The Sankey: money arriving on the green ramp, money leaving on the gold
        one, both deepest first (they grade size; every band prints its own
-       name), and a green hub, Money in, that is neither. Past the hub, money splits into
+       name), and a purple hub, Money in, that is neither. Past the hub, money splits into
        groups that wear their modules' role colours (accounts blue, debts red,
-       taxes and fees purple), so the pipes read like the canvas. */
-    --chart-inflow-1: var(--cyan-8);
-    --chart-inflow-2: var(--cyan-7);
-    --chart-inflow-3: var(--cyan-6);
-    --chart-inflow-4: var(--cyan-5);
-    --chart-inflow-5: var(--cyan-4);
-    --chart-inflow-6: var(--cyan-3);
+       taxes and fees teal), so the pipes read like the canvas. */
+    --chart-inflow-1: var(--green-8);
+    --chart-inflow-2: var(--green-7);
+    --chart-inflow-3: var(--green-6);
+    --chart-inflow-4: var(--green-5);
+    --chart-inflow-5: var(--green-4);
+    --chart-inflow-6: var(--green-3);
     --chart-outflow-1: var(--gold-8);
     --chart-outflow-2: var(--gold-7);
     --chart-outflow-3: var(--gold-6);
     --chart-outflow-4: var(--gold-5);
     --chart-outflow-5: var(--gold-4);
-    --chart-hub:       var(--green-6);
+    --chart-hub:       var(--purple-6);
     --chart-fee-1: var(--role-modifier);
     --chart-fee-2: color-mix(in srgb, var(--role-modifier) 70%, white);
     --chart-fee-3: color-mix(in srgb, var(--role-modifier) 80%, black);

@@ -14,7 +14,7 @@ const Catalog = require('../static/js/sim/catalog.js');
 const Plan = require('../static/js/sim/plan.js');
 
 // Choice fields have no empty value, so a module may pick how often it pays.
-const FIELD_CADENCE = new Set(['per', 'payMonth', 'contributions']);
+const FIELD_CADENCE = new Set(['per', 'payMonth', 'stopBy']);
 
 const close = (actual, expected, tol = 1e-6) =>
     assert.ok(Math.abs(actual - expected) <= tol * Math.max(1, Math.abs(expected)),
@@ -56,6 +56,132 @@ test('a retired preset folds into one whose category offers its old icon', () =>
         assert.ok(survivor, `${old} folds into ${type}`);
         assert.ok(Catalog.iconChoices(survivor).includes(icon), `${old} keeps its ${icon} icon as a ${type}`);
     }
+});
+
+test('an income stops never by default, and an older plan\'s end date becomes its stop', () => {
+    const { plan, nodes: [salary, pay] } = planWith('salary', 'paycheck');
+    assert.equal(salary.params.stopBy, 'never');
+    assert.ok(Catalog.fieldsFor(Catalog.preset('salary')).includes('stopBy'));
+    assert.ok(!Catalog.fieldsFor(Catalog.preset('one-time-income')).includes('stopBy'));
+    const raw = JSON.parse(JSON.stringify(plan));
+    delete raw.nodes[1].params.stopBy;
+    raw.nodes[1].params.end = '2030-06';
+    const v = Plan.validatePlan(raw);
+    assert.equal(v.nodes.find((n) => n.id === pay.id).params.stopBy, 'date');
+    assert.equal(v.nodes.find((n) => n.id === salary.id).params.stopBy, 'never');
+});
+
+test('an income\'s last month: a date as given, an age as the month before it is reached', () => {
+    const { plan, nodes: [pay] } = planWith('paycheck');
+    plan.settings.start = '2026-01';
+    plan.settings.age = 30;
+    Object.assign(pay.params, { stopBy: 'date', end: '2040-06', endAge: 65 });
+    assert.equal(Plan.incomeEnd(plan, pay), '2040-06');
+    pay.params.stopBy = 'age';
+    assert.equal(Plan.incomeEnd(plan, pay), '2060-12');
+    plan.settings.age = null;
+    assert.equal(Plan.incomeEnd(plan, pay), null);
+    pay.params.stopBy = 'never';
+    plan.settings.age = 30;
+    assert.equal(Plan.incomeEnd(plan, pay), null);
+});
+
+test('only a link between two accounts is two-way, and it keeps its way back when saved', () => {
+    const { plan, nodes: [chk, fund, rent] } = planWith('bank-account', 'investment', 'expense');
+    const save = Plan.createLink(plan, chk.id, fund.id);
+    const spend = Plan.createLink(plan, chk.id, rent.id);
+    plan.links.push(save, spend);
+    assert.equal(Plan.canTurn(plan, save), true);
+    assert.equal(Plan.canTurn(plan, spend), false);
+    assert.equal(Plan.makeTwoWay(plan, spend), false);
+    assert.equal(Plan.makeTwoWay(plan, save), true);
+    assert.equal(save.back.startWhen, null);            // the way back starts now
+    save.back.startWhen = { kind: 'balance', account: fund.id, amount: 50000 };
+    const raw = JSON.parse(JSON.stringify(plan));
+    raw.links.find((l) => l.id === spend.id).back = { ...save.back };      // not between accounts: dropped
+    const v = Plan.validatePlan(raw);
+    assert.deepEqual(v.links.find((l) => l.id === save.id).back, save.back);
+    assert.equal(v.links.find((l) => l.id === spend.id).back, undefined);
+    // An account its start waits on that is gone (or is not an account) is cleared.
+    raw.links.find((l) => l.id === save.id).back.startWhen.account = rent.id;
+    assert.equal(Plan.validatePlan(raw).links.find((l) => l.id === save.id).back.startWhen.account, null);
+});
+
+test('each side of a link saves its own start, and one sent once with a start needs no date', () => {
+    const { plan, nodes: [pay, chk, fund] } = planWith('paycheck', 'bank-account', 'investment');
+    const save = { ...Plan.createLink(plan, chk.id, fund.id), mode: 'fixed', value: 100, when: 'once', date: null,
+        startWhen: { kind: 'age', age: 60 } };
+    const split = { ...Plan.createLink(plan, pay.id, chk.id), startWhen: { kind: 'nonsense' } };
+    plan.links.push(save, split);
+    const v = Plan.validatePlan(JSON.parse(JSON.stringify(plan)));
+    assert.deepEqual(v.links[0].startWhen, { kind: 'age', age: 60 });
+    assert.equal(v.links[0].date, null);
+    assert.equal('startWhen' in v.links[1], false);     // an unknown condition starts now
+    plan.settings.age = 30;
+    assert.equal(Plan.startAgeMonth(plan, save.startWhen), Plan.ymAdd(plan.settings.start, 360));
+    // Starting now, once still needs its date.
+    delete save.startWhen;
+    assert.throws(() => Plan.validatePlan(JSON.parse(JSON.stringify(plan))), /needs a date/);
+});
+
+test('making a link two-way takes in a link already running the other way', () => {
+    const { plan, nodes: [chk, fund] } = planWith('bank-account', 'investment');
+    const save = Plan.createLink(plan, chk.id, fund.id);
+    const draw = { ...Plan.createLink(plan, fund.id, chk.id), mode: 'percent', value: 4, when: 'yearly',
+        startWhen: { kind: 'age', age: 65 } };
+    plan.links.push(save, draw);
+    assert.equal(Plan.makeTwoWay(plan, save), true);
+    assert.deepEqual(plan.links.map((l) => l.id), [save.id]);
+    assert.deepEqual([save.back.mode, save.back.value, save.back.when], ['percent', 4, 'yearly']);
+    assert.deepEqual(save.back.startWhen, { kind: 'age', age: 65 });
+    // Nothing more may run back along the pair.
+    assert.equal(Plan.canConnect(plan, fund.id, chk.id).ok, false);
+});
+
+test('the way back offers the same choices as the way out, and saves each', () => {
+    assert.deepEqual(Plan.BACK_MODES, Plan.modesFor({ type: 'bank-account' }, 'balance'));
+    assert.deepEqual(Plan.BACK_WHENS, Plan.timingsFor('balance', 'fixed'));
+    const { plan, nodes: [chk, fund] } = planWith('bank-account', 'investment');
+    const save = Plan.createLink(plan, chk.id, fund.id);
+    plan.links.push(save);
+    Plan.makeTwoWay(plan, save);
+    Object.assign(save.back, { mode: 'rest', value: 500, when: 'once', date: '2030-03' });
+    const back = Plan.validatePlan(JSON.parse(JSON.stringify(plan))).links[0].back;
+    assert.deepEqual([back.mode, back.value, back.when, back.date, back.startWhen], ['rest', 0, 'once', '2030-03', null]);
+});
+
+test('a link sent back once becomes a way back sent on its own date', () => {
+    const { plan, nodes: [chk, fund] } = planWith('bank-account', 'investment');
+    const save = Plan.createLink(plan, chk.id, fund.id);
+    const draw = { ...Plan.createLink(plan, fund.id, chk.id), mode: 'rest', when: 'once', date: '2045-06' };
+    plan.links.push(save, draw);
+    assert.equal(Plan.makeTwoWay(plan, save), true);
+    assert.deepEqual([save.back.mode, save.back.when, save.back.date], ['rest', 'once', '2045-06']);
+});
+
+test('a way back saved when it turned around starts at its age, or now', () => {
+    const { plan, nodes: [chk, fund] } = planWith('bank-account', 'investment');
+    const save = Plan.createLink(plan, chk.id, fund.id);
+    plan.links.push(save);
+    const raw = JSON.parse(JSON.stringify(plan));
+    const old = { mode: 'fixed', value: 2000, when: 'monthly', month: 1, growth: 0, income: null, age: 65 };
+    raw.links[0].back = { ...old, turn: 'age', date: null };
+    assert.deepEqual(Plan.validatePlan(raw).links[0].back.startWhen, { kind: 'age', age: 65 });
+    // Sent once on a turn date, it keeps that date as its own.
+    raw.links[0].back = { ...old, when: 'once', turn: 'date', date: '2050-01' };
+    const back = Plan.validatePlan(raw).links[0].back;
+    assert.deepEqual([back.startWhen, back.when, back.date, 'turn' in back], [null, 'once', '2050-01', false]);
+});
+
+test('a copied plan keeps the account a start waits on', () => {
+    const { plan, nodes: [chk, fund] } = planWith('bank-account', 'investment');
+    const save = { ...Plan.createLink(plan, chk.id, fund.id), startWhen: { kind: 'balance', account: chk.id, amount: 5000 } };
+    plan.links.push(save);
+    Plan.makeTwoWay(plan, save);
+    save.back.startWhen = { kind: 'balance', account: fund.id, amount: 1e6 };
+    const copy = Plan.cloneWithNewIds(plan, 'Copy');
+    assert.equal(copy.links[0].startWhen.account, copy.nodes[0].id);
+    assert.equal(copy.links[0].back.startWhen.account, copy.nodes[1].id);
 });
 
 test('year-month arithmetic', () => {
@@ -163,21 +289,22 @@ test('no rule asks for "the payment due": a saved one becomes the fixed payment 
     assert.deepEqual([get('l_card').mode, get('l_card').value], ['fixed', 400], 'the balance plus a month of purchases');
 });
 
-test('pre-tax links: income into a 401(k), or an HSA or IRA whose contributions are before tax', () => {
-    const { plan, nodes: [salary, k, roth, hsa, savings] } = planWith('salary', '401k', 'tax-advantaged-account', 'tax-advantaged-account', 'bank-account');
-    roth.params.contributions = 'after';
-    hsa.params.contributions = 'pre';
-    savings.params.contributions = 'pre';   // a setting its preset does not show: ignored
+test('pre-tax links: income into a Retirement Account, and nothing else', () => {
+    const { plan, nodes: [salary, k, roth, savings] } = planWith('salary', '401k', 'investment', 'bank-account');
     const into = (a, b) => { const l = Plan.createLink(plan, a.id, b.id); plan.links.push(l); return l; };
     assert.equal(Plan.isPretax(plan, into(salary, k)), true);
-    assert.equal(Plan.isPretax(plan, into(salary, hsa)), true);
     assert.equal(Plan.isPretax(plan, into(salary, roth)), false);
+    assert.equal(Plan.isPretax(plan, into(salary, savings)), false);
     assert.equal(Plan.isPretax(plan, into(savings, k)), false);   // only pay is pre-tax
 });
 
 test('a saved Match module folds into the 401(k) it fed', () => {
-    const { plan, nodes: [salary, pay, k, roth] } = planWith('salary', 'paycheck', 'tax-advantaged-account', 'tax-advantaged-account');
+    const { plan, nodes: [salary, pay, k, roth] } = planWith('salary', 'paycheck', 'investment', 'investment');
+    // Saved before the Tax-advantaged account was retired.
+    Object.assign(k, { type: 'tax-advantaged-account' });
+    Object.assign(roth, { type: 'tax-advantaged-account' });
     k.params.contributions = 'pre';
+    roth.params.contributions = 'after';
     const rule = { value: 0, basis: 'inflow', when: 'monthly', month: 1, date: null, start: null, end: null, growth: 0 };
     plan.nodes.push(
         { id: 'n_match', type: 'employer-match', name: 'Match', x: 0, y: 0, params: { rate: 50, capYearly: 3000 } },
@@ -199,23 +326,29 @@ test('a saved Match module folds into the 401(k) it fed', () => {
     // Pay already going to the 401(k) stays as it was; pay only told to the match now goes there.
     assert.deepEqual(v.links.map((l) => l.id).sort(), ['l_k', 'l_told']);
     assert.equal(v.links.find((l) => l.id === 'l_told').to, k.id);
-    // A match that fed no pre-tax account is dropped, and the Roth keeps its own type.
-    assert.equal(v.nodes.find((n) => n.id === roth.id).type, 'tax-advantaged-account');
+    // A match that fed no pre-tax account is dropped, and the Roth opens as an Investment.
+    assert.equal(v.nodes.find((n) => n.id === roth.id).type, 'investment');
 });
 
-test('Pre-tax account and Tax-free account are one module, by what their Contributions were', () => {
-    const { plan, nodes: [salary, a, b, c, d] } = planWith('salary', 'bank-account', 'bank-account', 'bank-account', 'bank-account');
-    const types = { [a.id]: 'pretax-account', [b.id]: 'tax-free-account', [c.id]: 'hsa', [d.id]: 'roth-ira' };
-    for (const n of plan.nodes) if (types[n.id]) { n.type = types[n.id]; n.params = { balance: 1000, rate: 5 }; }
+test('a pre-tax account opens as a Retirement Account and an after-tax one as an Investment', () => {
+    const { plan, nodes } = planWith('bank-account', 'bank-account', 'bank-account', 'bank-account', 'bank-account', 'bank-account');
+    const saved = [
+        ['pretax-account', {}], ['hsa', {}], ['tax-advantaged-account', { contributions: 'pre', match: 100 }],
+        ['tax-free-account', {}], ['roth-ira', { capYearly: 7000 }], ['tax-advantaged-account', { contributions: 'after' }],
+    ];
+    nodes.forEach((n, i) => { n.type = saved[i][0]; n.params = { balance: 1000, rate: 5, ...saved[i][1] }; });
     const out = Plan.validatePlan(JSON.parse(JSON.stringify(plan)));
-    const got = (n) => out.nodes.find((x) => x.id === n.id);
-    for (const n of [a, b, c, d]) assert.equal(got(n).type, 'tax-advantaged-account');
-    assert.deepEqual([a, b, c, d].map((n) => got(n).params.contributions), ['pre', 'after', 'pre', 'after']);
-    assert.equal(got(a).params.balance, 1000, 'what was set is kept');
-    assert.ok(salary);
-    // Saved again, the setting stands.
-    const again = Plan.validatePlan(JSON.parse(JSON.stringify(out)));
-    assert.deepEqual([a, b].map((n) => again.nodes.find((x) => x.id === n.id).params.contributions), ['pre', 'after']);
+    const got = nodes.map((n) => out.nodes.find((x) => x.id === n.id));
+    assert.deepEqual(got.map((n) => n.type), ['401k', '401k', '401k', 'investment', 'investment', 'investment']);
+    assert.ok(got.every((n) => n.params.balance === 1000), 'what was set is kept');
+    assert.equal(got[2].params.match, 0, 'a match it never showed does not switch on');
+    assert.equal(got[4].params.capYearly, null, 'an Investment has no yearly limit');
+    assert.ok(got.every((n) => !('contributions' in n.params)));
+    assert.equal(Catalog.preset('tax-advantaged-account'), null);
+});
+
+test('an Investment can be locked until a date', () => {
+    assert.ok(Catalog.fieldsFor(Catalog.preset('investment')).includes('lockUntil'));
 });
 
 test('a loan payment levels out over its years left', () => {
@@ -442,6 +575,21 @@ test('moving a cost link onto an expense already paid for makes it a fixed amoun
     assert.equal(paysRent.mode, 'fixed');
 });
 
+test('a link\'s sending end moves to another module and keeps a valid rule', () => {
+    const { plan, nodes: [salary, checking, savings, rent] } = planWith('salary', 'bank-account', 'bank-account', 'expense');
+    const l = Plan.createLink(plan, salary.id, savings.id);
+    plan.links.push(l);
+    assert.ok(Plan.reconnect(plan, l, checking.id, 't', 'from').ok);
+    assert.equal(l.from, checking.id);
+    assert.equal(l.to, savings.id);
+    assert.equal(l.fromSide, 't');
+    assert.ok(Plan.basesFor(checking).includes(l.basis));
+    assert.doesNotThrow(() => Plan.validatePlan(JSON.parse(JSON.stringify(plan))));
+    // Spending sends nothing on, so it cannot become the sending end.
+    assert.equal(Plan.reconnect(plan, l, rent.id, null, 'from').reason, 'role');
+    assert.equal(l.from, checking.id);
+});
+
 test('an expense saved before costs opens with none', () => {
     const { plan, nodes: [rent] } = planWith('expense');
     rent.params = {};
@@ -487,6 +635,27 @@ test('a saved plan that holds a removed module opens without it and its links', 
         assert.ok(Plan.REMOVED_TYPES.has(type), type);
         assert.equal(Catalog.preset(type), null, type);
     }
+});
+
+test('a saved plan with a Tax or fee module opens without it, and the Modifiers shelf is gone', () => {
+    const { plan, nodes: [pay, savings] } = planWith('paycheck', 'bank-account');
+    const raw = JSON.parse(JSON.stringify(plan));
+    const rule = { mode: 'rest', value: 0, basis: 'inflow', when: 'monthly', month: 1, date: null, start: null, end: null, growth: 0 };
+    raw.nodes.push(
+        { id: 'n_tax', type: 'tax-or-fee', name: 'Tax', x: 40, y: 40, params: { rate: 20 } },
+        { id: 'n_fee', type: 'fee', name: 'Fee', x: 80, y: 80, params: { rate: 1 } });
+    raw.links = [
+        { id: 'l_in', from: pay.id, to: 'n_tax', ...rule },
+        { id: 'l_out', from: 'n_tax', to: savings.id, ...rule },
+        { id: 'l_keep', from: pay.id, to: savings.id, ...rule, mode: 'fixed', value: 100 },
+    ];
+    const v = Plan.validatePlan(raw);
+    assert.deepEqual(v.nodes.map((n) => n.id), [pay.id, savings.id]);
+    assert.deepEqual(v.links.map((l) => l.id), ['l_keep']);
+    for (const type of ['tax-or-fee', 'tax', 'fee']) assert.equal(Catalog.preset(type), null, type);
+    assert.ok(!Catalog.CATEGORIES.some((c) => c.id === 'modifiers'));
+    // The budget group is still a modifier, and the only one.
+    assert.deepEqual(Catalog.PRESETS.filter((p) => p.role === 'modifier').map((p) => p.id), ['living']);
 });
 
 test('older plans lose spending links that are no longer allowed', () => {

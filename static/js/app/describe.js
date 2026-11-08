@@ -16,6 +16,8 @@
 
     const presetOf = (node) => C.preset(node.type);
     const roleOf = (node) => presetOf(node).role;
+    /** The colour a module wears: its role's, or 'group' (catalog.js, swatchOf). */
+    const swatchOf = (node) => C.swatchOf(presetOf(node));
 
     /** What a link's basis is called, from the source's side. */
     function basisNoun(from, basis) {
@@ -48,7 +50,7 @@
 
     /** Timing as words for a sentence. */
     function timingWords(link) {
-        if (link.when === 'yearly') return `every ${MONTH_NAMES[link.month - 1]}`;
+        if (link.when === 'yearly') return 'every year';
         if (link.when === 'once') return link.date ? `once, in ${P.ymLabel(link.date)}` : 'once';
         return 'every month';
     }
@@ -114,8 +116,76 @@
         return { amount: `${compact(amount)}${perMonth ? '/mo' : ''}`, rule: linkRule(link, from) };
     }
 
+    // ── Two-way links ──────────────────────────────────────────────────────
+    // A two-way link's way back is a rule out of the target's balance into the
+    // source, so it is worded as a link of its own (backRule) where it can be.
+
+    /** The way back as a link-shaped rule, for the wording above. */
+    function backRule(link) {
+        const b = link.back;
+        return { mode: b.mode, value: b.value, basis: 'balance', when: b.when,
+            date: b.date || null, start: null, end: null, growth: b.mode === 'fixed' ? b.growth : 0 };
+    }
+
+    /** The way back's rule in short, for its half of the pill: '$2,000/mo', '4%/yr'. */
+    function backShort(link, to) {
+        return linkShort(backRule(link), to);
+    }
+
+    /** The way back's dollars and rule on the canvas, as linkFigure. */
+    function backFigure(link, to, amount, perMonth) {
+        return linkFigure(backRule(link), to, amount, perMonth);
+    }
+
+    /** When a side of a link starts, as words, or '' when it starts now:
+     *  'starting at age 65 (Nov 2061)', 'starting when Investment reaches
+     *  $1M'. Sent once, it is sent then: 'at age 65 (Nov 2061)'. */
+    function startWords(cond, once, plan) {
+        if (!cond) return '';
+        const b = (s) => `<b>${escapeHtml(s)}</b>`;
+        const lead = once ? '' : 'starting ';
+        if (cond.kind === 'age') {
+            const ym = plan && P.startAgeMonth(plan, cond);
+            return `${lead}at age ${b(Fmt.number(cond.age, 1))}${ym ? ` (${escapeHtml(P.ymLabel(ym))})` : ''}`;
+        }
+        const acct = cond.account && plan && plan.nodes.find((n) => n.id === cond.account);
+        return `${lead}when ${acct ? b(acct.name) : 'an account'} reaches ${b(Fmt.money(cond.amount))}`;
+    }
+
+    /** Why a side of a link never starts, for its warning. */
+    function startProblem(cond, why, plan) {
+        if (why === 'no-age') return `it waits for age ${Fmt.number(cond.age, 1)}, but the plan has no age set (Your age, in the plan’s Timeline)`;
+        if (why === 'no-account') return 'no account is picked for its Start';
+        const acct = plan.nodes.find((n) => n.id === cond.account);
+        return `${acct ? acct.name : 'its account'} never reaches ${Fmt.money(cond.amount)}`;
+    }
+
+    /** The way back as a sentence, following the link's own: 'And send
+     *  $2,000 back to Checking every month, growing 2.5% a year, starting at
+     *  age 65 (Nov 2061).' */
+    function backSentence(link, from, to, plan) {
+        const b = (s) => `<b>${escapeHtml(s)}</b>`;
+        const back = link.back;
+        const floor = to.params.minBalance || 0;
+        const what = back.mode === 'percent'
+            ? `${b(`${Fmt.number(back.value, 2)}%`)} of ${b(to.name)}’s balance`
+            : back.mode === 'rest'
+                ? `everything in ${b(to.name)}${floor ? ` above ${b(Fmt.money(floor))}` : ''}`
+                : b(Fmt.money(back.value, { decimals: back.value % 1 ? 2 : 0 }));
+        const parts = [`And send ${what} back to ${b(from.name)}`, timingWords(backRule(link))];
+        if (back.mode === 'fixed' && back.growth) parts.push(`growing ${b(`${Fmt.number(back.growth, 2)}%`)} a year`);
+        const starts = startWords(back.startWhen, back.when === 'once', plan);
+        if (starts) parts.push(starts);
+        return `${parts.join(', ')}.`;
+    }
+
     /** The full rule as HTML, numbers and names in <b>. Names are escaped. */
     function linkSentence(link, from, to) {
+        const one = oneWaySentence(link, from, to);
+        return link.back ? `${one} ${backSentence(link, from, to, Store.state.plan)}` : one;
+    }
+
+    function oneWaySentence(link, from, to) {
         const b = (s) => `<b>${escapeHtml(s)}</b>`;
         const pretax = Store.state.plan && P.isPretax(Store.state.plan, link);
         const noun = pretax ? 'pay before tax' : basisNoun(from, link.basis);
@@ -151,6 +221,8 @@
         if (link.start && link.end) parts.push(`from ${P.ymLabel(link.start)} to ${P.ymLabel(link.end)}`);
         else if (link.start) parts.push(`starting ${P.ymLabel(link.start)}`);
         else if (link.end) parts.push(`until ${P.ymLabel(link.end)}`);
+        const starts = startWords(link.startWhen, link.when === 'once', Store.state.plan);
+        if (starts) parts.push(starts);
         return `${parts.join(', ')}.`;
     }
 
@@ -167,6 +239,8 @@
         if (link.start && link.end) parts.push(`from ${P.ymLabel(link.start)} to ${P.ymLabel(link.end)}`);
         else if (link.start) parts.push(`starting ${P.ymLabel(link.start)}`);
         else if (link.end) parts.push(`until ${P.ymLabel(link.end)}`);
+        const starts = startWords(link.startWhen, false, Store.state.plan);
+        if (starts) parts.push(starts);
         return `${parts.join(', ')}.`;
     }
 
@@ -201,8 +275,7 @@
                 const growth = r ? `${Fmt.pct(r)} ${word}` : '';
                 const match = p.employerMatch && node.params.match ? `${Fmt.pct(node.params.match)} match` : '';
                 const keeps = node.params.minBalance ? `keeps ${compact(node.params.minBalance)}` : '';
-                const taxed = p.taxChoice ? (node.params.contributions === 'pre' ? 'pre-tax' : 'after-tax') : '';
-                const badge = [growth, match, taxed, keeps].filter(Boolean).join(' · ');
+                const badge = [growth, match, keeps].filter(Boolean).join(' · ');
                 return badge.charAt(0).toUpperCase() + badge.slice(1);
             }
             case 'debt': {
@@ -212,11 +285,9 @@
                     ? `${Fmt.pct(node.params.cashBack)} back${backTo ? ` to ${backTo.name}` : ''}` : '';
                 const payment = p.kind === 'card' ? 0 : P.loanPayment(node.params);
                 const due = payment > 0.005 ? `${compact(payment)}/mo` : '';
-                return [apr, back, due].filter(Boolean).join(' · ');
+                const asset = p.kind !== 'card' && node.params.asset > 0 ? `${compact(node.params.asset)} asset` : '';
+                return [apr, back, due, asset].filter(Boolean).join(' · ');
             }
-            case 'modifier':
-                if (p.kind === 'group') return '';
-                return `${Fmt.pct(r)} tax`;
             default:
                 return '';
         }
@@ -228,7 +299,9 @@
         if (p.role === 'source') {
             const v = node.params;
             if (v.per === 'once') return v.start ? P.ymLabel(v.start) : 'once';
-            return scheduleShort(v, v.amount);
+            const until = v.stopBy === 'date' && v.end ? ` · until ${P.ymLabel(v.end)}`
+                : v.stopBy === 'age' && v.endAge != null ? ` · until age ${Fmt.number(v.endAge, 0)}` : '';
+            return `${scheduleShort(v, v.amount)}${until}`;
         }
         if (p.role === 'expense') {
             const v = node.params;
@@ -237,6 +310,12 @@
             return `${scheduleShort(v, v.cost)}${inflation}`;
         }
         return nodeBadge(node);
+    }
+
+    /** What a loan's asset (the home or car it is secured by) is called in
+     *  charts and tables: "Mortgage asset". */
+    function assetLabel(node) {
+        return `${node.name} asset`;
     }
 
     function monthLabel(plan, k) {
@@ -251,7 +330,7 @@
     // How loud a warning is. A card's high utilization and an expense's cost
     // that no link pays are notices (not a problem yet) and money parked in
     // Unassigned is information; every other warning is a warning.
-    const WARNING_LEVEL = { unassigned: 'info', utilization: 'notice', 'cost-unpaid': 'notice' };
+    const WARNING_LEVEL = { unassigned: 'info', utilization: 'notice', 'cost-unpaid': 'notice', 'stop-no-age': 'notice', 'stopped-before': 'notice', 'no-start': 'notice' };
 
     /** 'warn', 'notice' or 'info', without writing the warning's sentence. */
     function warningLevel(w) {
@@ -270,7 +349,8 @@
         switch (w.code) {
             case 'short': {
                 const l = plan.links.find((x) => x.id === w.linkId);
-                const to = l ? nameOf(plan, l.to) : 'its target';
+                // The way back of a two-way link runs from its target to its source.
+                const to = l ? nameOf(plan, w.back ? l.from : l.to) : 'its target';
                 return {
                     select: { kind: 'link', id: w.linkId },
                     text: `${name} to ${to} falls ${Fmt.money(w.amount, { compact: true })} short, starting ${m(w.month)}.`,
@@ -302,6 +382,20 @@
                     select: { kind: 'node', id: w.nodeIds[0] },
                     text: `Money circles between ${w.nodeIds.map((id) => nameOf(plan, id)).join(', ')}.`,
                 };
+            case 'no-start': {
+                const l = plan.links.find((x) => x.id === w.linkId);
+                const side = l && (w.back ? l.back : l);
+                if (!side || !side.startWhen) return { select: null, text: 'A flow never starts.' };
+                const [a, z] = w.back ? [l.to, l.from] : [l.from, l.to];
+                return {
+                    select: { kind: 'link', id: w.linkId },
+                    text: `${nameOf(plan, a)} to ${nameOf(plan, z)} never starts: ${startProblem(side.startWhen, w.why, plan)}.`,
+                };
+            }
+            case 'stop-no-age':
+                return { select: node, text: `${name} stops at an age, but the plan has no age set. Set Your age in the plan's Timeline.` };
+            case 'stopped-before':
+                return { select: node, text: `${name} stops before the plan starts, so it pays nothing.` };
             case 'runaway':
                 return { select: null, text: 'A loop passes all of its money around; some was parked in Unassigned.' };
             default:
@@ -313,6 +407,11 @@
      *  during month m, as the plan's issues are dated. */
     function payoff(ms, plan) {
         return { level: 'done', select: { kind: 'node', id: ms.nodeId }, text: `${nameOf(plan, ms.nodeId)} is paid off in ${monthLabel(plan, ms.month)}.` };
+    }
+
+    /** An income's stop as a sentence, plus the income to select. */
+    function incomeStop(ms, plan) {
+        return { level: 'info', select: { kind: 'node', id: ms.nodeId }, text: `${nameOf(plan, ms.nodeId)} stops after ${monthLabel(plan, ms.month)}.` };
     }
 
     // ── Goals ──────────────────────────────────────────────────────────────
@@ -407,7 +506,7 @@
     }
 
     window.Describe = {
-        CATEGORY_NAME, roleOf, portLabel, linkShort, linkFigure, linkSentence, nodeMeta, monthLabel, warning, warningLevel, payoff,
+        CATEGORY_NAME, roleOf, swatchOf, portLabel, linkShort, linkFigure, linkSentence, nodeMeta, monthLabel, assetLabel, backShort, backFigure, startWords, warning, warningLevel, payoff, incomeStop,
         GOAL_METRICS, GOAL_OPS, GOAL_COLORS, duration, goalOp, goalTarget, goalDue, goalSentence, goalStatus,
     };
 }());

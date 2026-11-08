@@ -49,7 +49,7 @@
     root.innerHTML = `
         <div class="page scroll-y">
             ${K.pageHead({
-                start: `<span class="page-label" aria-hidden="true">Measured in</span>${K.planPick({ act: 'plan', label: 'Plan the goals are measured in' })}`,
+                start: K.planPick({ act: 'plan', label: 'Plan the goals are measured in' }),
                 extra: `<button class="button-primary" type="button" data-act="add">${iconSvg('plus')}<span>Add goal</span></button>`,
             })}
             <div class="stat-cards" data-stats></div>

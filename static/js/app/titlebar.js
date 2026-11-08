@@ -24,7 +24,7 @@
         const sig = `${name}|${planName}`;
         if (sig === drawn) return;
         drawn = sig;
-        document.title = `${planName || name} | Aventurine Planner`;
+        document.title = `Aventurine - ${planName || name}`;
     }
 
     // ── Signed-in user ─────────────────────────────────────────────────────
@@ -76,14 +76,31 @@
         signed_out: 'Saved in this browser. Sync stopped: reload to sign in',
         server: 'Saved in this browser. Sync will try again shortly',
     };
+    // With sync on, the status is a cloud instead: green with a check once
+    // synced, orange with a warning when a change is not synced (or not saved
+    // at all), grey with a slash offline, and grey with an arrow while a change
+    // is on its way. The word stays for screen readers and in the tooltip.
+    const CLOUD = {
+        success: ['cloud-check', 'synced'],
+        error: ['cloud-warning', 'unsynced'],
+        warning: ['cloud-slash', 'offline'],
+        processing: ['cloud-arrow-up', 'saving'],
+    };
     function renderSave() {
         if (!saveEl) return;
         const { save, sync, syncProblem } = Store.state;
         let [tone, text, title] = (save === 'saved' && SYNC[sync]) || SAVE[save] || SAVE.saved;
         if (save === 'saved' && sync === 'error' && SYNC_PROBLEM[syncProblem]) title = SYNC_PROBLEM[syncProblem];
-        saveEl.className = `titlebar-save badge-dot badge-dot--${tone}`;
-        saveEl.textContent = text;
         saveEl.title = title;
+        if (sync === 'off' || !SYNC[sync]) {
+            saveEl.className = `titlebar-save badge-dot badge-dot--${tone}`;
+            saveEl.textContent = text;
+            return;
+        }
+        const [icon, state] = CLOUD[tone];
+        saveEl.className = `titlebar-save titlebar-sync titlebar-sync--${state}`;
+        saveEl.innerHTML = `${iconSvg(icon)}<span class="sr-only"></span>`;
+        saveEl.lastChild.textContent = text;
     }
 
     renderTitle();
