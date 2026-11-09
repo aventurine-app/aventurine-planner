@@ -7,7 +7,7 @@
 // A plan is plain JSON:
 //
 //   { id, name, version, createdAt, updatedAt,
-//     settings: { start: 'YYYY-MM', years, inflation, age },
+//     settings: { start: 'YYYY-MM', years, inflation, age, retireAge },
 //     view:     { x, y, zoom },            canvas camera, restored on open
 //     nodes:    [{ id, type, name, x, y, params, icon? }],
 //     links:    [{ id, from, to, mode, value, basis, when, month, date,
@@ -17,6 +17,10 @@
 //
 // `age` is the age of the person the plan is for, at its start (null when not
 // given). It dates a goal's age deadline and labels the charts.
+//
+// `retireAge` is the age that person means to retire at (null when not
+// given). An income may stop at it and a link may start at it, so changing
+// it moves every one of them at once (incomeEnd, startAgeMonth).
 //
 // GOALS are shared by all of a user's plans, not part of any one: a list kept
 // beside the plans (validateGoals). Each goal is one rule, a sentence of four
@@ -80,7 +84,9 @@
 //
 // STARTING. Each side of a link (the link, and its way back) starts now, or
 // when a condition is first met (`startWhen`, see cleanStart): an age, or an
-// account reaching a size. Once started it keeps running.
+// account reaching a size. Once started it keeps running until it stops: never
+// (`stopWhen` null or absent), or the first month a condition of the same
+// kinds is met (`stopWhen`, see cleanStart). It does not run that month.
 //
 // Timing (`when`) is monthly, yearly (in the month it starts and every twelfth
 // after) or once (on `date`, or the month it starts), with an
@@ -408,7 +414,7 @@
             version: PLAN_VERSION,
             createdAt: now,
             updatedAt: now,
-            settings: { start, years, inflation: 2.5, age: null },
+            settings: { start, years, inflation: 2.5, age: null, retireAge: null },
             view: { x: 0, y: 0, zoom: 1 },
             nodes: [],
             links: [],
@@ -437,15 +443,31 @@
         return Math.floor(age + ymDiff(start, ym) / 12);
     }
 
+    /** The month the plan's person turns `age` ('YYYY-MM'), or null when
+     *  either age is not set. */
+    function ageMonth(plan, age) {
+        if (age == null || plan.settings.age == null) return null;
+        return ymAdd(plan.settings.start, Math.round((age - plan.settings.age) * 12));
+    }
+
+    /** The age an income stops at (its own, or the plan's retirement age),
+     *  or null when it does not stop at an age or that age is not set. */
+    function stopAge(plan, node) {
+        const v = node.params;
+        if (v.stopBy === 'age') return v.endAge ?? null;
+        if (v.stopBy === 'retire') return plan.settings.retireAge ?? null;
+        return null;
+    }
+
     /** The last month an income pays ('YYYY-MM'), or null when it runs on.
-     *  Stopping at an age, that is the month before the plan's person turns
-     *  it (the month an age goal falls due, goalDate), so it needs the plan's
-     *  age. */
+     *  Stopping at an age (its own or the plan's retirement age), that is the
+     *  month before the plan's person turns it (the month an age goal falls
+     *  due, goalDate), so it needs the plan's age. */
     function incomeEnd(plan, node) {
         const v = node.params;
         if (v.stopBy === 'date') return v.end || null;
-        if (v.stopBy !== 'age' || v.endAge == null || plan.settings.age == null) return null;
-        return ymAdd(plan.settings.start, Math.round((v.endAge - plan.settings.age) * 12) - 1);
+        const ym = ageMonth(plan, stopAge(plan, node));
+        return ym == null ? null : ymAdd(ym, -1);
     }
 
     // ── Two-way links ──────────────────────────────────────────────────────
@@ -468,19 +490,29 @@
     // month a condition is met, and keeps running from then on:
     //
     //   startWhen = { kind: 'age', age }                  the plan's person reaches `age`
+    //             | { kind: 'retire' }                    they reach the plan's retireAge
     //             | { kind: 'balance', account, amount }  `account` holds `amount` or more
     //
     // Sent once with a condition, it is sent the month it starts (it has no
     // date of its own). A condition that cannot be met (an age with no plan
     // age, an account that is gone) never starts it, and the engine flags it.
 
-    const START_KINDS = ['age', 'balance'];
+    const START_KINDS = ['age', 'retire', 'balance'];
 
-    /** The month an age condition is met ('YYYY-MM'), or null when the plan
-     *  has no age (or the condition is not an age). */
+    /** The age an age condition waits for: its own, or the plan's
+     *  retirement age. Null when it is not an age condition or the age is not set. */
+    function startAge(plan, cond) {
+        if (!cond) return null;
+        if (cond.kind === 'age') return cond.age ?? null;
+        if (cond.kind === 'retire') return plan.settings.retireAge ?? null;
+        return null;
+    }
+
+    /** The month an age condition (an age or the retirement age) is met
+     *  ('YYYY-MM'), or null when an age it needs is not set (or the
+     *  condition is not an age). */
     function startAgeMonth(plan, cond) {
-        if (!cond || cond.kind !== 'age' || cond.age == null || plan.settings.age == null) return null;
-        return ymAdd(plan.settings.start, Math.round((cond.age - plan.settings.age) * 12));
+        return ageMonth(plan, startAge(plan, cond));
     }
 
     /** Whether a link may be two-way: from one account's balance to another account. */
@@ -496,13 +528,14 @@
     function makeTwoWay(plan, link) {
         if (!link || link.back || !canTurn(plan, link)) return false;
         const back = { mode: 'fixed', value: 2000, when: 'monthly', date: null,
-            growth: plan.settings.inflation || 0, startWhen: null };
+            growth: plan.settings.inflation || 0, startWhen: null, stopWhen: null };
         const opposite = plan.links.find((l) => l.from === link.to && l.to === link.from && l.basis === 'balance');
         if (opposite) {
             if (BACK_MODES.includes(opposite.mode)) Object.assign(back, { mode: opposite.mode, value: opposite.mode === 'rest' ? 0 : opposite.value });
             if (opposite.mode === 'fixed') back.growth = opposite.growth || 0;
             if (BACK_WHENS.includes(opposite.when)) Object.assign(back, { when: opposite.when, date: opposite.date || null });
             if (opposite.startWhen) back.startWhen = { ...opposite.startWhen };
+            if (opposite.stopWhen) back.stopWhen = { ...opposite.stopWhen };
             plan.links.splice(plan.links.indexOf(opposite), 1);
         }
         if (back.when === 'once' && !back.date && !back.startWhen) back.date = ymAdd(plan.settings.start, 12);
@@ -842,6 +875,8 @@
         // Proceeds happen on the module's own date, so they always start with it.
         const startWhen = link.basis === 'proceeds' ? null : cleanStart(raw.startWhen, nodesById, `link ${i}`);
         if (startWhen) link.startWhen = startWhen;
+        const stopWhen = link.basis === 'proceeds' ? null : cleanStart(raw.stopWhen, nodesById, `link ${i} stop`);
+        if (stopWhen) link.stopWhen = stopWhen;
         // Proceeds happen on the module's own date, not the link's; a link
         // with a start condition is sent once the month it starts.
         if (link.when === 'once' && link.basis !== 'proceeds' && !link.date && !startWhen) {
@@ -877,6 +912,7 @@
             date,
             growth: cleanNumber(raw.growth ?? 0, -100, 100, `${what} growth back`),
             startWhen,
+            stopWhen: cleanStart(raw.stopWhen, nodesById, `${what} stop`),
         };
     }
 
@@ -888,6 +924,7 @@
         if (raw.kind === 'age') {
             return { kind: 'age', age: cleanNumber(raw.age ?? 65, GOAL_AGE.min, GOAL_AGE.max, `${what} start age`) };
         }
+        if (raw.kind === 'retire') return { kind: 'retire' };
         const acct = typeof raw.account === 'string' ? nodesById.get(raw.account) : null;
         return {
             kind: 'balance',
@@ -1049,6 +1086,8 @@
                 years: Math.round(cleanNumber(settings.years, 1, LIMITS.years, 'plan length')),
                 inflation: cleanNumber(settings.inflation ?? 0, -20, 50, 'inflation'),
                 age: settings.age == null ? null : cleanNumber(settings.age, 0, GOAL_AGE.max, 'age'),
+                retireAge: settings.retireAge == null ? null
+                    : cleanNumber(settings.retireAge, GOAL_AGE.min, GOAL_AGE.max, 'retirement age'),
             },
             view: {
                 x: cleanNumber(Number(view.x) || 0, -1e6, 1e6, 'view x'),
@@ -1227,7 +1266,9 @@
             l.from = map.get(l.from);
             l.to = map.get(l.to);
             for (const s of [l, l.back]) {
-                if (s && s.startWhen && s.startWhen.account) s.startWhen.account = map.get(s.startWhen.account) || null;
+                for (const c of [s && s.startWhen, s && s.stopWhen]) {
+                    if (c && c.account) c.account = map.get(c.account) || null;
+                }
             }
         }
         delete copy.goals;
@@ -1238,7 +1279,7 @@
         PLAN_VERSION, LIMITS, GEOM, MONTHS, RULES, PlanError, REMOVED_TYPES, reconnect,
         ymParse, ymFormat, ymNow, ymAdd, ymDiff, ymLabel,
         newId, roleOf, basesFor, modesFor, timingsFor, costPayer, portTargets, targetRoles, basesBetween, changeBasis, loanPayment, isPretax,
-        createPlan, createNode, iconOf, ageAt, incomeEnd, canTurn, makeTwoWay, BACK_MODES, BACK_WHENS, START_KINDS, startAgeMonth, RETIRED_TYPES, canConnect, createLink, fitRule,
+        createPlan, createNode, iconOf, ageAt, ageMonth, stopAge, startAge, incomeEnd, canTurn, makeTwoWay, BACK_MODES, BACK_WHENS, START_KINDS, startAgeMonth, RETIRED_TYPES, canConnect, createLink, fitRule,
         GOAL_METRICS, GOAL_OPS, GOAL_UNITS, GOAL_DUES, GOAL_VALUE, GOAL_AGE, GOAL_COLORS, createGoal, goalDate,
         validateGoals, legacyGoals, mergeGoals, validatePlan, cloneWithNewIds,
     };

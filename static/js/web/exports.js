@@ -74,24 +74,25 @@
     }
 
     const GOAL_STATUS = {
-        reached: 'Met on time',
+        met: 'Met on time',
         late: 'Met late',
-        behind: 'Not met by the deadline',
-        open: 'Not met in the plan',
+        unmet: 'Never met',
+        blocked: 'Cannot be measured in this plan',
     };
 
-    /** Every goal against every plan, one row each. */
+    /** Every goal against every plan, one row each, judged over the goal
+     *  horizon as the Goals page judges them. */
     function goalsCsv(plans, goals, { logger = console } = {}) {
         const rows = [];
         for (const plan of plans) {
-            const res = goals.length ? run(plan, logger) : null;
+            const res = goals.length ? run(Goals.horizon(plan), logger) : null;
             const evs = res ? Goals.evaluate(plan, res, goals) : [];
             goals.forEach((goal, i) => {
                 const ev = evs[i];
                 const month = (k) => (k == null || k < 0 ? null : Plan.ymAdd(plan.settings.start, k));
                 rows.push([
                     goal.name, plan.name,
-                    !ev ? 'Could not be measured' : ev.blocked ? 'Cannot be measured in this plan' : GOAL_STATUS[ev.status],
+                    !ev ? 'Could not be measured' : GOAL_STATUS[ev.status],
                     ev && !ev.blocked ? month(ev.month) : null,
                     ev ? month(ev.byIdx) : null,
                 ]);

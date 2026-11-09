@@ -93,7 +93,7 @@ test('the goals CSV has every goal against every plan', () => {
     const lines = Exports.goalsCsv(plans, goals).slice(1).trim().split('\r\n');
     assert.equal(lines[0], 'Goal,Plan,Status,Met in,Deadline');
     assert.equal(lines.length, 5);
-    assert.ok(lines.some((l) => l.startsWith('Richer,B,Not met by the deadline,,2028-01')), lines.join('\n'));
+    assert.ok(lines.some((l) => l.startsWith('Richer,B,Never met,,2028-01')), lines.join('\n'));
 });
 
 // ── Zip ────────────────────────────────────────────────────────────────────

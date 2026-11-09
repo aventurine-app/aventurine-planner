@@ -340,6 +340,11 @@ test('merging goals', () => {
     assert.deepEqual(mergeGoals([a, b], [a], [a, b]), [a], 'deleted here only');
     assert.deepEqual(mergeGoals([a, b], [a, { ...b, name: 'B2' }], [a]), [a, { ...b, name: 'B2' }], 'an edit beats a deletion');
     assert.deepEqual(mergeGoals([a], [{ ...a, name: 'mine' }], [{ ...a, name: 'theirs' }]), [{ ...a, name: 'mine' }], 'edited on both: this device\'s');
+    const c = { id: 'g_c', name: 'C' };
+    const b2 = { ...b, name: 'B2' };
+    assert.deepEqual(mergeGoals([a, b], [b, a], [a, b2]), [b2, a], 'reordered here only: this device\'s order');
+    assert.deepEqual(mergeGoals([a, b], [a, b, c], [b, a]), [b, a, c], 'reordered there: theirs, an addition here is no reorder');
+    assert.deepEqual(mergeGoals([a, b], [b, a], [a, b, c]), [b, a, c], 'an addition there is no reorder either');
 });
 
 // ── After the subscription ends ────────────────────────────────────────────

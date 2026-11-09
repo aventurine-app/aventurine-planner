@@ -129,8 +129,15 @@
         });
         showPop(el, at, () => { if (at.el) at.el.setAttribute('aria-expanded', 'false'); });
         if (at.el) at.el.setAttribute('aria-expanded', 'true');
-        const first = el.querySelector('.menu-item:not(:disabled)');
-        if (first) first.focus({ preventScroll: true });
+        // Open on the current pick, scrolled into view in a menu that scrolls.
+        const first = el.querySelector('.menu-item.is-chosen:not(:disabled)')
+            || el.querySelector('.menu-item:not(:disabled)');
+        if (first) {
+            first.focus({ preventScroll: true });
+            if (el.scrollHeight > el.clientHeight) {
+                el.scrollTop = first.offsetTop - (el.clientHeight - first.offsetHeight) / 2;
+            }
+        }
     }
 
     // ── Popover ────────────────────────────────────────────────────────────

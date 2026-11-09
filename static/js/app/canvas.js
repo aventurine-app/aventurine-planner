@@ -87,7 +87,7 @@
                 <button class="button-icon" type="button" data-act="zoom-in" aria-label="Zoom in">${iconSvg('plus')}</button>
             </div>
         </div>
-        <div class="island island--time" hidden aria-live="polite">${iconSvg('clock-counter-clockwise')}<span></span></div>
+        <div class="island island--time" hidden aria-live="polite">${iconSvg('clock-counter-clockwise')}<span></span><span class="island-age" hidden>${iconSvg('user')}<span class="sr-only">Age</span><span></span></span></div>
         <div class="canvas-empty" hidden>
             <div class="empty-state" role="dialog" aria-labelledby="empty-state-title">
                 <button class="modal-close empty-state-close" type="button" data-act="dismiss-empty" aria-label="Close">×</button>
@@ -111,6 +111,8 @@
     const inspectorBtn = stage.querySelector('[data-act="inspector"]');
     const timeIsland = stage.querySelector('.island--time');
     const timeLabel = timeIsland.querySelector('span');
+    const timeAge = timeIsland.querySelector('.island-age');
+    const timeAgeLabel = timeAge.querySelector('span:not(.sr-only)');
     const emptyEl = stage.querySelector('.canvas-empty');
     // Plans whose empty card was closed with the ×; it stays closed for the session.
     const dismissedEmpty = new Set();
@@ -586,6 +588,36 @@
         return lifts;
     }
 
+    // ── A link side's figure ───────────────────────────────────────────────
+    // `e` is a side's results (engine.js): its flow, and the month it started
+    // and stopped when it waits on a condition.
+
+    /** How many months of the plan a side runs: from its start to its stop. */
+    function sideActiveMonths(e, res) {
+        if (!e || e.started === null) return 0;
+        const from = e.started || 0;
+        const to = e.stopped == null ? res.months : Math.min(e.stopped, res.months);
+        return Math.max(0, to - from);
+    }
+
+    /** Whether a side is sent once a year, shown as a scrubbed month. */
+    const yearly = (when, vp) => when === 'yearly' && !!vp && !vp.all;
+
+    /** The dollars a side shows. Over the whole plan, its monthly average
+     *  over the months it runs (not the years it waits). In a month, what it
+     *  sends then, or sent once a year, the year's amount (the last 12 months). */
+    function sideAmount(e, when, vp, res) {
+        if (!e || !vp) return 0;
+        if (vp.all) {
+            const n = sideActiveMonths(e, res);
+            return n ? e.total / n : 0;
+        }
+        if (!yearly(when, vp)) return e.flow[vp.month];
+        let sum = 0;
+        for (let i = Math.max(0, vp.month - 11); i <= vp.month; i++) sum += e.flow[i];
+        return sum;
+    }
+
     function renderLink(link, view, lift, frame) {
         const { res, vp, sel } = frame;
         const from = frame.byId.get(link.from);
@@ -610,7 +642,7 @@
         const lr = res && res.links[link.id];
         const two = !!link.back;
         const lb = two && lr ? lr.back : null;
-        const amount = !lr || !vp ? 0 : vp.all ? lr.avg : lr.flow[vp.month];
+        const amount = sideAmount(lr, link.when, vp, res);
         const idle = !lr || (lr.total < 0.005 && !(lb && lb.total >= 0.005));
         put(view, 'idle', idle, () => {
             view.g.classList.toggle('is-idle', idle);
@@ -620,7 +652,9 @@
         // A two-way link: which of its sides have started by the month shown
         // (none over the whole plan), its dots turning round when only the
         // way back runs. A side without a start condition has no `started`.
-        const begun = (e) => !!e && (e.started === undefined || (e.started != null && vp.month >= e.started));
+        // A side that has stopped (stopWhen) by then no longer runs.
+        const begun = (e) => !!e && (e.started === undefined || (e.started != null && vp.month >= e.started))
+            && (e.stopped == null || vp.month < e.stopped);
         const phase = !two || !vp || vp.all || !lr ? null
             : begun(lr) && begun(lb) ? 'both' : begun(lr) ? 'out' : begun(lb) ? 'back' : 'none';
         put(view, 'two', two, (v) => {
@@ -644,12 +678,14 @@
                 h.rule.hidden = !t;
             });
         };
-        const figure = lr && vp && phase !== 'back' ? D.linkFigure(link, from, amount, vp.all) : { amount: D.linkShort(link, from), rule: null };
+        // A side that does not run in the range shown (or this month) shows its rule.
+        const runs = (e) => !!e && !!vp && (vp.all ? sideActiveMonths(e, res) > 0 : begun(e));
+        const figure = runs(lr) ? D.linkFigure(link, from, amount, vp.all, yearly(link.when, vp)) : { amount: D.linkShort(link, from), rule: null };
         setHalf(view.front, 'front', figure);
         let backFig = null;
         if (two) {
-            const backAmount = !lb || !vp ? 0 : vp.all ? lb.avg : lb.flow[vp.month];
-            backFig = lb && vp && phase !== 'out' ? D.backFigure(link, to, backAmount, vp.all) : { amount: D.backShort(link, to), rule: null };
+            const backAmount = sideAmount(lb, link.back.when, vp, res);
+            backFig = runs(lb) ? D.backFigure(link, to, backAmount, vp.all, yearly(link.back.when, vp)) : { amount: D.backShort(link, to), rule: null };
             setHalf(view.back, 'back', backFig);
             const out = arrowAlong(a, b);
             put(view, 'arrows', out, (o) => {
@@ -746,6 +782,10 @@
             timeIsland.hidden = false;
             // The month the cards show, as the issues and the pins name it.
             timeLabel.textContent = D.monthLabel(plan, vp.month);
+            // The person's age that month, when the plan has one.
+            const age = P.ageAt(plan, P.ymAdd(plan.settings.start, vp.month));
+            timeAge.hidden = age == null;
+            timeAgeLabel.textContent = age == null ? '' : String(age);
         } else {
             timeIsland.hidden = true;
         }

@@ -696,6 +696,69 @@ test('a side that never starts says why', () => {
     const c = twoWayPlan({ startWhen: { kind: 'balance', account: null, amount: 1e9 } });
     c.l.back.startWhen.account = c.fund.id;
     assert.deepEqual(why(c.plan, c.l), [['unreached', true]]);
+    const d = twoWayPlan({ startWhen: { kind: 'retire' } });
+    assert.deepEqual(why(d.plan, d.l), [['no-retire-age', true]]);
+    d.plan.settings.retireAge = 41;
+    d.plan.settings.age = null;
+    assert.deepEqual(why(d.plan, d.l), [['no-age', true]]);
+});
+
+test('the retirement age goal stops a paycheck and starts the way back the same month', () => {
+    const { plan, pay, l } = twoWayPlan({ startWhen: { kind: 'retire' } });
+    Object.assign(pay.params, { stopBy: 'retire', end: null });
+    plan.settings.retireAge = 41.5;                     // July 2027
+    const r = run(plan);
+    close(r.nodes[pay.id].gross[17], 3000);
+    close(r.nodes[pay.id].gross[18], 0);
+    assert.equal(r.links[l.id].back.started, 18);
+    assert.ok(!r.warnings.some((w) => w.code === 'stop-no-retire-age' || w.code === 'no-start'));
+});
+
+test('the way out stops at retirement as the way back starts', () => {
+    const { plan, pay, l } = twoWayPlan({ startWhen: { kind: 'retire' } });
+    Object.assign(pay.params, { stopBy: 'date', end: null, amount: 3000 });
+    pay.params.stopBy = 'never';
+    l.stopWhen = { kind: 'retire' };
+    plan.settings.retireAge = 41.5;                     // July 2027
+    const r = run(plan);
+    const lr = r.links[l.id];
+    assert.equal(lr.stopped, 18);
+    assert.equal(lr.back.started, 18);
+    assert.ok(lr.flow.slice(0, 18).some((x) => x > 0));
+    assert.ok(lr.flow.slice(18).every((x) => x === 0));
+    assert.ok(lr.back.flow[18] > 0);
+    assert.ok(!r.warnings.some((w) => w.code === 'no-stop'));
+});
+
+test('a side stops once an account reaches a size, and one that cannot stop says why', () => {
+    const { plan, fund, l } = twoWayPlan();
+    delete l.back;
+    l.stopWhen = { kind: 'balance', account: fund.id, amount: 5000 };
+    const r = run(plan);
+    const lr = r.links[l.id];
+    assert.ok(lr.stopped > 0);
+    const reached = r.nodes[fund.id].balance.findIndex((b) => b >= 5000 - 1e-6);
+    assert.equal(lr.stopped, reached);                  // checked at the top of the month after it got there
+    assert.ok(lr.flow.slice(lr.stopped).every((x) => x === 0));
+    const why = (p) => run(p).warnings.filter((w) => w.code === 'no-stop').map((w) => w.why);
+    l.stopWhen = { kind: 'retire' };
+    assert.deepEqual(why(plan), ['no-retire-age']);
+    l.stopWhen = { kind: 'balance', account: null, amount: 5000 };
+    assert.deepEqual(why(plan), ['no-account']);
+    l.stopWhen = { kind: 'age', age: 90 };              // past the plan's end: runs on, nothing to flag
+    assert.deepEqual(why(plan), []);
+    assert.equal(run(plan).links[l.id].stopped, null);
+});
+
+test('a retirement stop in a plan with no retirement age runs on and is flagged', () => {
+    const plan = mkPlan('2026-01', 1);
+    plan.settings.age = 40;
+    const pay = node(plan, 'paycheck', { amount: 1000, per: 'month', stopBy: 'retire' });
+    link(plan, pay, node(plan, 'bank-account', { balance: 0, rate: 0 }));
+    const r = run(plan);
+    close(r.totals.earned, 12000);
+    assert.ok(r.warnings.some((w) => w.code === 'stop-no-retire-age' && w.nodeId === pay.id));
+    assert.ok(!r.warnings.some((w) => w.code === 'stop-no-age'));
 });
 
 test('the way back out of a locked account falls short until it unlocks', () => {

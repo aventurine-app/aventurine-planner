@@ -62,10 +62,16 @@
 // that never starts (no plan age, no account picked, a size never reached) is
 // flagged `no-start`.
 //
+// Stopping. A side may stop when a condition of the same kinds is first met;
+// it does not run from that month on. A two-way link's way out can stop at
+// retirement as its way back starts. One that cannot be met (an age missing,
+// no account picked) runs on and is flagged `no-stop`.
+//
 // Stopping income. A salary or paycheck may be set to stop: its Last paid
 // month is the last it pays, and stopping at an age it pays up to the month
 // before the plan's person turns that age (plan.js, incomeEnd). Without the
-// plan's age set, an age stop is flagged `stop-no-age` and the income runs on.
+// plan's age set, an age stop is flagged `stop-no-age`, and a stop at the
+// retirement age without it set `stop-no-retire-age`; either runs on.
 //
 // Expense costs. An expense may have a cost of its own, on a schedule like
 // income's (every month, a yearly lump, once) and rising by its inflation rate
@@ -159,7 +165,7 @@
         const startOn = (L, cond) => {
             if (!cond) return;
             L.cond = cond;
-            if (cond.kind === 'age') {
+            if (cond.kind === 'age' || cond.kind === 'retire') {
                 const ym = Plan.startAgeMonth(plan, cond);
                 L.startIdx = ym == null ? Infinity : Math.max(L.startIdx, idxOf(ym));
                 if (L.when === 'once') L.dateIdx = L.startIdx;
@@ -171,6 +177,23 @@
             L.startIdx = Infinity;
             if (L.when === 'once') L.dateIdx = null;
             if (L.waitOn) waiting.push(L);
+        };
+
+        // A side with a stop condition does not run from the month it is met
+        // on: an age is a month known now; an account's size is checked at
+        // the top of each month (`stopping`), after any start that month.
+        const stopping = [];
+        const stopOn = (L, cond) => {
+            if (!cond) return;
+            L.stopCond = cond;
+            if (cond.kind === 'age' || cond.kind === 'retire') {
+                const ym = Plan.startAgeMonth(plan, cond);
+                if (ym != null) L.endIdx = Math.min(L.endIdx, idxOf(ym) - 1);
+                return;
+            }
+            const acct = cond.account && byId.get(cond.account);
+            L.stopOnAcct = acct && acct.role === 'account' ? acct : null;
+            if (L.stopOnAcct) stopping.push(L);
         };
 
         const linkStates = [];
@@ -199,6 +222,7 @@
             linkStates.push(L);
 
             startOn(L, link.startWhen);
+            stopOn(L, link.stopWhen);
 
             // A two-way link's way back runs out of the target's balance into
             // the source, side by side with the way out, each from its own
@@ -217,6 +241,7 @@
                     givenMonth: -1, given: 0,
                 };
                 startOn(B, b.startWhen);
+                stopOn(B, b.stopWhen);
                 to.outs.balance.push(B);
                 linkStates.push(B);
             }
@@ -541,6 +566,13 @@
                 L.startIdx = Math.max(t, L.notBefore);
                 if (L.when === 'once') L.dateIdx = L.startIdx;
                 waiting.splice(i, 1);
+            }
+            // Sides set to stop at an account's size stop once it is reached.
+            for (let i = stopping.length - 1; i >= 0; i--) {
+                const L = stopping[i];
+                if (L.stopOnAcct.bal < L.stopCond.amount - EPS) continue;
+                L.endIdx = Math.min(L.endIdx, t - 1);
+                stopping.splice(i, 1);
             }
             if (cal === 1) {
                 for (const s of accounts) { s.depositsThisYear = 0; s.matchedThisYear = 0; }
@@ -906,7 +938,9 @@
                 // plan starts, it pays nothing at all.
                 if (s.endIdx >= 0 && s.endIdx < months - 1) milestones.push({ code: 'stops', nodeId: s.id, month: s.endIdx });
                 else if (s.endIdx < 0) warnings.push({ code: 'stopped-before', nodeId: s.id });
-                if (s.params.stopBy === 'age' && s.params.endAge != null && r.plan.settings.age == null) {
+                if (s.params.stopBy === 'retire' && r.plan.settings.retireAge == null) {
+                    warnings.push({ code: 'stop-no-retire-age', nodeId: s.id });
+                } else if (Plan.stopAge(r.plan, s) != null && r.plan.settings.age == null) {
                     warnings.push({ code: 'stop-no-age', nodeId: s.id });
                 }
             }
@@ -935,9 +969,22 @@
             if (L.cond) {
                 entry.started = Number.isFinite(L.startIdx) ? Math.max(0, L.startIdx) : null;
                 if (entry.started == null) {
-                    const why = L.cond.kind === 'age' ? 'no-age' : L.waitOn ? 'unreached' : 'no-account';
+                    const why = L.cond.kind === 'retire' && r.plan.settings.retireAge == null ? 'no-retire-age'
+                        : L.cond.kind === 'age' || L.cond.kind === 'retire' ? 'no-age'
+                        : L.waitOn ? 'unreached' : 'no-account';
                     warnings.push({ code: 'no-start', linkId: L.id, nodeId: L.from.id, why, ...(L.back ? { back: true } : {}) });
                 }
+            }
+            // A side with a stop condition says the first month it no longer
+            // runs (null: it never stopped). One that cannot be met (an age
+            // with an age missing, no account) runs on, and is flagged.
+            if (L.stopCond) {
+                entry.stopped = L.endIdx + 1 < months ? Math.max(0, L.endIdx + 1) : null;
+                const c = L.stopCond;
+                const why = c.kind === 'retire' && r.plan.settings.retireAge == null ? 'no-retire-age'
+                    : (c.kind === 'age' || c.kind === 'retire') && r.plan.settings.age == null ? 'no-age'
+                    : c.kind === 'balance' && !L.stopOnAcct ? 'no-account' : null;
+                if (why) warnings.push({ code: 'no-stop', linkId: L.id, nodeId: L.from.id, why, ...(L.back ? { back: true } : {}) });
             }
             if (L.short > 0.005) {
                 warnings.push({ code: 'short', linkId: L.id, nodeId: L.from.id, amount: L.short, month: L.shortFirst,

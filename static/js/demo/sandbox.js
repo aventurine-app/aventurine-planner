@@ -39,7 +39,11 @@
             <span class="sandbox-cap" data-cap="${id}">${label} <b class="sandbox-cap-count"></b></span>`).join('')}
         </div>
         <a class="sandbox-cta" href="${UPGRADE_URL}" target="_blank" rel="noopener">Get the full app</a>`;
-    bar.insertBefore(center, document.getElementById('titlebar-save'));
+    // The sandbox has no account to sync to, so the bar shows no saved or
+    // synced status: the centre group takes the status's place.
+    const status = document.getElementById('titlebar-save');
+    bar.insertBefore(center, status);
+    status?.remove();
 
     const counts = Object.fromEntries(CAPS.map(([id]) => [id, center.querySelector(`[data-cap="${id}"]`)]));
 

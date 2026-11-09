@@ -131,7 +131,8 @@
      * Two goal lists that both changed since `base`, goal by goal: a goal
      * changed on one side only takes that change (a deletion included); one
      * changed on both keeps this device's edit, and an edit beats a deletion.
-     * The other device's order, then goals only this one has.
+     * The other device's order, then goals only this one has; unless only this
+     * device reordered the goals both lists share, when its order leads.
      */
     function mergeGoals(base, local, remote) {
         const byId = (list) => new Map(list.map((g) => [g.id, g]));
@@ -139,8 +140,17 @@
         const was = byId(base);
         const here = byId(local);
         const there = byId(remote);
+        // The order of the goals `list` shares with the base, ignoring goals
+        // added or deleted, so an addition is not taken for a reorder.
+        const order = (list, keep) => list.map((g) => g.id).filter((id) => keep.has(id)).join('|');
+        const reordered = (list) => {
+            const ids = byId(list);
+            const shared = new Set(base.map((g) => g.id).filter((id) => ids.has(id)));
+            return order(list, shared) !== order(base, shared);
+        };
+        const lead = reordered(local) && !reordered(remote) ? [local, remote] : [remote, local];
         const merged = [];
-        for (const id of new Set([...remote.map((g) => g.id), ...local.map((g) => g.id)])) {
+        for (const id of new Set(lead.flatMap((list) => list.map((g) => g.id)))) {
             const before = was.get(id);
             const mine = here.get(id);
             const theirs = there.get(id);

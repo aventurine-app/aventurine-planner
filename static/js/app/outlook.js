@@ -286,14 +286,23 @@
 
     // ── Sankey ─────────────────────────────────────────────────────────────
 
-    /** The spans the Sankey offers: each plan year, then the whole plan. */
+    /** The spans the Sankey offers: the whole plan, then each calendar year
+     *  it touches ("2026"). A plan starting mid-year has a short first year. */
     function sankeySpans(plan, months) {
+        const start = P.ymParse(plan.settings.start);
+        const startMonth = start ? start.m - 1 : 0;
+        const firstYear = start ? start.y : 0;
         const spans = [];
-        for (let from = 0; from < months; from += 12) {
-            const to = Math.min(months, from + 12);
-            spans.push({ year: spans.length, from, to, label: `${label(plan, from)} to ${label(plan, to - 1)}` });
+        for (let from = 0; from < months;) {
+            const to = Math.min(months, from + 12 - ((startMonth + from) % 12));
+            const y = firstYear + Math.floor((startMonth + from) / 12);
+            spans.push({ year: spans.length, from, to, label: start ? String(y) : `Year ${spans.length + 1}` });
+            from = to;
         }
-        if (spans.length > 1) spans.push({ year: -1, from: 0, to: months, label: `All ${spans.length} years` });
+        if (spans.length > 1) {
+            const range = `${spans[0].label}–${spans[spans.length - 1].label}`;
+            spans.unshift({ year: -1, from: 0, to: months, label: start ? `All years, ${range}` : `All ${spans.length} years` });
+        }
         return spans;
     }
 
@@ -620,7 +629,7 @@
                     chosen: s.year === current.year,
                     onSelect: () => { sankeyYear = s.year; render(); },
                 }));
-                if (items.length > 1) items.splice(items.length - 1, 0, 'sep');
+                if (items.length > 1) items.splice(1, 0, 'sep');
                 UI.menu(act, items, { align: 'right' });
                 return;
             }

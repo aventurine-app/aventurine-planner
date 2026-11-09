@@ -366,6 +366,10 @@ html[data-theme="dark"] { --table-header-bg: #1d1d1d; --table-row-hover-bg: #262
 .card-body--flush .data-table td:first-child { padding-left: var(--space-24); }
 .card-body--flush .data-table th:last-child,
 .card-body--flush .data-table td:last-child { padding-right: var(--space-24); }
+/* At the foot of a card the card's own border closes the table: the last
+   row drops its rule, and the cells keep inside the card's rounded corners. */
+.card-body--flush:last-child { overflow: hidden; border-radius: 0 0 var(--border-radius-lg) var(--border-radius-lg); }
+.card-body--flush:last-child .data-table tbody tr:last-child > * { border-bottom: 0; }
 
 /* A sortable column's header: the whole cell is the button. */
 .th-sort {

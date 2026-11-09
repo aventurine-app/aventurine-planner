@@ -499,6 +499,16 @@ html[data-theme="dark"] { --node-tint: 14%; --node-edge: 30%; --node-active-ring
     pointer-events: none;
 }
 .island--time .icon { width: 14px; height: 14px; }
+/* The person's age that month, to the right of the date. */
+.island-age {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 4px;
+    padding-left: 10px;
+    border-left: var(--line-width) solid var(--color-info-border);
+    align-self: stretch;
+}
 
 .zoom-level {
     min-width: 58px;

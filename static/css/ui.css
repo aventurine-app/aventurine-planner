@@ -38,6 +38,10 @@
 /* ─── Dropdown menu: Ant's Dropdown ──────────────────────────────────────── */
 .menu-pop {
     min-width: 160px;
+    /* A long menu (a plan's years) scrolls inside itself, as Ant's does. */
+    max-height: min(320px, calc(100vh - 16px));
+    overflow-y: auto;
+    overscroll-behavior: contain;
     padding: var(--space-4);
 }
 

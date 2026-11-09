@@ -8,6 +8,21 @@
     --sandbox-warn: #ffd666;        /* gold-4 on black: 12:1 */
 }
 
+/* "Aventurine Demo" (sandbox.js) is wider than the navigation, so the lead
+   grows to fit it rather than cutting it off; collapsed to the rail, the name
+   fades as in the app and the lead is the rail's width again. */
+.titlebar-lead {
+    width: auto;
+    min-width: var(--sidebar-width);
+    padding-right: var(--space-16);
+    interpolate-size: allow-keywords;   /* lets the width still animate */
+}
+:root.has-rail .titlebar-lead {
+    width: var(--sidebar-width);
+    min-width: 0;
+    padding-right: 0;
+}
+
 .sandbox-center {
     /* Centred on the bar itself, not on the space left between its other parts. */
     position: absolute;

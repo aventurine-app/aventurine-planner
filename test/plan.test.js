@@ -86,6 +86,47 @@ test('an income\'s last month: a date as given, an age as the month before it is
     assert.equal(Plan.incomeEnd(plan, pay), null);
 });
 
+test('the plan\'s retirement age goal stops incomes and starts links, and is saved', () => {
+    const { plan, nodes: [pay, chk, fund] } = planWith('paycheck', 'bank-account', 'investment');
+    plan.settings.start = '2026-01';
+    plan.settings.age = 30;
+    pay.params.stopBy = 'retire';
+    const draw = { ...Plan.createLink(plan, fund.id, chk.id), startWhen: { kind: 'retire', age: 40 } };
+    plan.links.push(draw);
+    // Not set yet: neither has a month.
+    assert.equal(Plan.incomeEnd(plan, pay), null);
+    assert.equal(Plan.startAgeMonth(plan, draw.startWhen), null);
+    plan.settings.retireAge = 62;
+    assert.equal(Plan.incomeEnd(plan, pay), '2057-12');
+    assert.equal(Plan.startAgeMonth(plan, draw.startWhen), '2058-01');
+    // One edit moves both.
+    plan.settings.retireAge = 67;
+    assert.equal(Plan.incomeEnd(plan, pay), '2062-12');
+    assert.equal(Plan.startAgeMonth(plan, draw.startWhen), '2063-01');
+    const v = Plan.validatePlan(JSON.parse(JSON.stringify(plan)));
+    assert.equal(v.settings.retireAge, 67);
+    assert.equal(v.nodes.find((n) => n.id === pay.id).params.stopBy, 'retire');
+    assert.deepEqual(v.links[0].startWhen, { kind: 'retire' });    // the age is the plan's, not its own
+    assert.equal(Plan.validatePlan({ ...JSON.parse(JSON.stringify(plan)), settings: { ...plan.settings, retireAge: undefined } })
+        .settings.retireAge, null);
+});
+
+test('each side of a link saves its own stop, and a copy keeps its account', () => {
+    const { plan, nodes: [chk, fund, rent] } = planWith('bank-account', 'investment', 'expense');
+    const save = { ...Plan.createLink(plan, chk.id, fund.id), stopWhen: { kind: 'retire' } };
+    const spend = { ...Plan.createLink(plan, chk.id, rent.id), stopWhen: { kind: 'nonsense' } };
+    plan.links.push(save, spend);
+    Plan.makeTwoWay(plan, save);
+    assert.equal(save.back.stopWhen, null);             // the way back runs on
+    save.back.stopWhen = { kind: 'balance', account: fund.id, amount: 0 };
+    const v = Plan.validatePlan(JSON.parse(JSON.stringify(plan)));
+    assert.deepEqual(v.links[0].stopWhen, { kind: 'retire' });
+    assert.deepEqual(v.links[0].back.stopWhen, { kind: 'balance', account: fund.id, amount: 0 });
+    assert.equal('stopWhen' in v.links[1], false);      // an unknown condition never stops
+    const copy = Plan.cloneWithNewIds(v, 'Copy');
+    assert.equal(copy.links[0].back.stopWhen.account, copy.nodes[1].id);
+});
+
 test('only a link between two accounts is two-way, and it keeps its way back when saved', () => {
     const { plan, nodes: [chk, fund, rent] } = planWith('bank-account', 'investment', 'expense');
     const save = Plan.createLink(plan, chk.id, fund.id);

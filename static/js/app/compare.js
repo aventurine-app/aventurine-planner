@@ -17,8 +17,8 @@
 //                 earnings plus card cash back), debt payoff (months until
 //                 nothing is owed for the rest of the run: "No debt" when
 //                 nothing ever is, "Not paid off" when debt is still owed at
-//                 the end), taxes paid (income tax withheld; a card's annual
-//                 fee is a fee, not a tax). Each
+//                 the end), expenses (what expense modules and budget groups
+//                 spent over the run; taxes and card fees aside). Each
 //                 column is ranked: the best tagged Best with a green trophy,
 //                 the runners-up 2nd (silver) and 3rd (bronze), each tinted,
 //                 so rank never rests on colour alone.
@@ -55,7 +55,7 @@
         { id: 'worth', name: 'Net worth', note: 'At the end', best: 'max', show: (v) => money(v), signed: true },
         { id: 'growth', name: 'Growth', note: 'Interest and rewards', best: 'max', show: (v) => money(v) },
         { id: 'payoff', name: 'Debt payoff', note: 'Until debt-free', best: 'min', show: payoff },
-        { id: 'taxes', name: 'Taxes paid', note: 'Over the whole run', best: 'min', show: (v) => money(v) },
+        { id: 'expenses', name: 'Expenses', note: 'Over the whole run', best: 'min', show: (v) => money(v) },
     ];
 
 
@@ -83,9 +83,8 @@
                 </section>
             </div>
             <section class="card compare-all" aria-labelledby="compare-all-title">
-                <div class="card-head"><h2 class="card-title" id="compare-all-title">All plans</h2><span class="card-extra">Each column ranked, best first</span></div>
+                <div class="card-head"><h2 class="card-title" id="compare-all-title">All plans</h2></div>
                 <div class="card-body card-body--flush"><div class="table-wrap compare-wrap"></div></div>
-                <p class="compare-note">Shading and tags mark the best plan in each column and its runners-up. Growth is what accounts earn plus card cash back. Debt payoff is how long until nothing is owed for the rest of the run. Taxes paid counts income tax withheld.</p>
             </section>
         </div>`;
 
@@ -146,19 +145,24 @@
         for (const r of Object.values(res.nodes)) {
             if (r.role === 'debt') owed += r.balance[n];
         }
+        // Goals are judged over the goal horizon, not the length compared.
         const goals = Store.state.goals;
-        const evs = goals.length ? G.evaluate(plan, res, goals) : [];
+        const goalRes = goals.length ? Runs.forGoals(plan) : null;
+        const evs = goalRes ? G.evaluate(plan, goalRes, goals) : [];
         return {
             worth: res.netWorth[n] * def[n],
             worthSeries: Float64Array.from(res.netWorth, (v, k) => v * def[k]),
             owed: owed * def[n],
             payoff: debtFree(res),
             spent: sum((m) => F.spent[m] + F.skimmed[m]),
+            // What expenses and budget groups spent: the Sankey's Spending,
+            // without taxes or a card's fees.
+            expenses: sum((m) => F.spent[m]),
             interest: sum((m) => F.interest[m]),
             growth: sum((m) => F.growth[m] + F.cashback[m]),
             // Card annual fees (the only other cut, `skimmed`) are fees, not taxes.
             taxes: sum((m) => F.withheld[m]),
-            goalsMet: evs.filter((e) => !e.blocked && e.status === 'reached').length,
+            goalsMet: evs.filter((e) => e.status === 'met').length,
             goalCount: goals.length,
         };
     }

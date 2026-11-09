@@ -117,7 +117,7 @@
         match:      { type: 'percent',   label: 'Employer match',   min: 0,    max: 200 },
         matchLimit: { type: 'money',     label: 'Yearly match limit', min: 0, max: 1e10, optional: true },
         stopBy:     { type: 'choice',    label: 'Stops',
-                      options: [['never', 'Never'], ['date', 'On a date'], ['age', 'At an age']] },
+                      options: [['never', 'Never'], ['date', 'On a date'], ['age', 'At an age'], ['retire', 'At retirement age']] },
         endAge:     { type: 'number',    label: 'At age',           min: 1,    max: 120,  optional: true, suffix: 'yrs' },
         asset:      { type: 'money',     label: 'Asset value',      min: 0,    max: 1e11, optional: true },
         assetRate:  { type: 'percent',   label: 'Appreciation',     min: -100, max: 100,  suffix: '/yr' },
@@ -207,7 +207,8 @@
     // today, or when it is bought if the loan starts later in the plan.
     const DEBT_FIELDS = ['balance', 'rate', 'term', 'start', 'asset', 'assetRate'];
     // An income may stop: never, after a month (its Last paid, inclusive), or
-    // the month its plan's person reaches an age (plan.js, incomeEnd).
+    // the month its plan's person reaches an age, its own or the plan's
+    // retirement age (plan.js, incomeEnd).
     const STOPS = ['stopBy', 'end', 'endAge'];
     const STOP_LABELS = { end: 'Last paid' };
     const P = (cat, role, id, name, icon, extra = {}) => ({ cat, role, id, name, icon, ...extra });

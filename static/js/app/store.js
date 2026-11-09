@@ -749,8 +749,10 @@
                 l.id = P.newId('l');
                 l.from = ids.get(src.from);
                 l.to = ids.get(src.to);
-                // A start on a copied account's size follows the copy.
-                for (const s of [l, l.back]) if (s && s.startWhen && ids.has(s.startWhen.account)) s.startWhen.account = ids.get(s.startWhen.account);
+                // A start or stop on a copied account's size follows the copy.
+                for (const s of [l, l.back]) {
+                    for (const c of [s && s.startWhen, s && s.stopWhen]) if (c && ids.has(c.account)) c.account = ids.get(c.account);
+                }
                 plan.links.push(l);
             }
             return true;
@@ -768,7 +770,9 @@
             for (const n of plan.nodes) if (n.params && gone.has(n.params.cashBackTo)) n.params.cashBackTo = null;
             // A flow waiting on a removed account's size waits to be told which.
             for (const l of plan.links) {
-                for (const s of [l, l.back]) if (s && s.startWhen && gone.has(s.startWhen.account)) s.startWhen.account = null;
+                for (const s of [l, l.back]) {
+                    for (const c of [s && s.startWhen, s && s.stopWhen]) if (c && gone.has(c.account)) c.account = null;
+                }
             }
         });
     }
@@ -847,6 +851,18 @@
         });
     }
 
+    /** Move goal `id` to index `to` of the list (clamped to it), as one undo
+     *  step. True when it moved. */
+    function moveGoal(id, to) {
+        return editGoals((goals) => {
+            const from = goals.findIndex((g) => g.id === id);
+            const at = Math.max(0, Math.min(goals.length - 1, to));
+            if (from < 0 || from === at) return false;
+            goals.splice(at, 0, goals.splice(from, 1)[0]);
+            return true;
+        }) === true;
+    }
+
     async function loadGoals() {
         const r = await api('GET', '/api/goals');
         if (!r.ok) throw new Error(r.body.error || 'goals could not be loaded');
@@ -859,7 +875,7 @@
         select, setScrub, setView, flush, boot, limitReached, openPlan, newPlan, addPlan, duplicatePlan,
         renamePlan, deletePlan, reorderTabs, importPlan, exportPlan, exportAll, planName, getPlan,
         node, link, previewPreset, setPreviewIcon, addNode, duplicateNode, copyNodes, pasteNodes, removeNode, removeNodes,
-        connect, reconnect, removeLink, goal, editGoals, addGoal, nextGoalColor, removeGoal, setWorkspace,
+        connect, reconnect, removeLink, goal, editGoals, addGoal, nextGoalColor, removeGoal, moveGoal, setWorkspace,
         applyRemote, setSync, setYears, atLength,
     };
 }());

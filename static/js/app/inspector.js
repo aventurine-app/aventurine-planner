@@ -155,9 +155,10 @@
         if (sentence) {
             const l = Store.link(built.slice(5));
             if (l) sentence.innerHTML = D.linkSentence(l, Store.node(l.from), Store.node(l.to));
-            for (const el of root.querySelectorAll('[data-starts]')) {
-                const side = l && (el.dataset.starts === 'back' ? l.back : l);
-                if (side) el.textContent = startsLabel(plan(), side.startWhen);
+            for (const el of root.querySelectorAll('[data-cond-at]')) {
+                const [which, key] = el.dataset.condAt.split(':');
+                const side = l && (key === 'back' ? l.back : l);
+                if (side) el.textContent = startsLabel(plan(), side[COND[which].prop]);
             }
         }
     }
@@ -254,7 +255,8 @@
         });
         // The age is the person the plan is for, at its start: it dates a goal
         // that is due at an age and an income that stops at one, and labels
-        // the charts.
+        // the charts. The retirement age goal is one age that incomes may stop
+        // at and links may start at, so one edit moves them all.
         const settings = `<div class="insp-fields">
             ${field('Starts', 'plan.start', {
                 type: 'yearmonth',
@@ -265,6 +267,11 @@
                 type: 'number', min: 0, max: P.GOAL_AGE.max, suffix: 'yrs', decimals: true, optional: true,
                 get: () => plan().settings.age,
                 set: (pl, v) => { pl.settings.age = v; },
+            })}
+            ${field('Retirement age goal', 'plan.retireAge', {
+                type: 'number', min: P.GOAL_AGE.min, max: P.GOAL_AGE.max, suffix: 'yrs', decimals: true, optional: true,
+                get: () => plan().settings.retireAge,
+                set: (pl, v) => { pl.settings.retireAge = v; },
             })}
         </div>`;
         return `
@@ -577,7 +584,7 @@
                 <button class="button-icon" type="button" data-act="link-delete" aria-label="Delete flow" title="Delete flow">${iconSvg('trash')}</button>
             </div>
             ${direction}
-            ${section(two ? `To ${to.name}` : 'Flow', `<div class="insp-fields">${rule}</div>`)}
+            ${section(`To ${to.name}`, `<div class="insp-fields">${rule}</div>`)}
             ${backHtml}
             <section class="insp-section"><p class="sentence" data-sentence>${D.linkSentence(link, from, to)}</p></section>
             </div>
@@ -637,47 +644,60 @@
                 set: setR((x, v) => { x.growth = v; }),
             });
         }
-        if (starts) html += startRows(r, R, setR, key);
+        if (starts) {
+            html += condRows(r, R, setR, key, 'start');
+            // Sent once, it has nothing to stop.
+            if (r.when !== 'once') html += condRows(r, R, setR, key, 'stop');
+        }
         return html;
     }
 
-    /** A side's Start: Now, or When a condition is met, an age or an
-     *  account's size (plan.js, Starting). */
-    function startRows(r, R, setR, key) {
-        const c = r.startWhen;
-        const on = c ? 'when' : 'now';
-        let html = row('Start', `<div class="segctl" role="group" aria-label="Start">${[['now', 'Now'], ['when', 'When']].map(([v, t]) =>
-            `<button class="segctl-btn" type="button" data-start="${key}:${v}" aria-pressed="${on === v}">${t}</button>`).join('')}</div>`);
+    // A side's Start and Stop (plan.js, Starting): each Now/Never, or When a
+    // condition is met, an age, the plan's retirement age or an account's size.
+    const COND = {
+        start: { prop: 'startWhen', label: 'Start', off: ['now', 'Now'], at: 'Starts' },
+        stop:  { prop: 'stopWhen',  label: 'Stop',  off: ['never', 'Never'], at: 'Stops' },
+    };
+
+    function condRows(r, R, setR, key, which) {
+        const { prop, label, off, at } = COND[which];
+        const c = r[prop];
+        const on = c ? 'when' : off[0];
+        let html = row(label, `<div class="segctl" role="group" aria-label="${label}">${[off, ['when', 'When']].map(([v, t]) =>
+            `<button class="segctl-btn" type="button" data-cond="${which}:${key}:${v}" aria-pressed="${on === v}">${t}</button>`).join('')}</div>`);
         if (!c) return html;
-        const C = () => R().startWhen || {};
-        html += field('Condition', `${key}.startWhen.kind`, {
+        const C = () => R()[prop] || {};
+        html += field('Condition', `${key}.${prop}.kind`, {
             type: 'select', rebuild: true,
-            options: [['age', 'Age'], ['balance', 'Account size']],
+            options: [['age', 'Age'], ['retire', 'Retirement age'], ['balance', 'Account size']],
             get: () => C().kind,
-            // A new kind starts afresh (newStart), as Send's modes do.
+            // A new kind starts afresh (newCond), as Send's modes do.
             set: (pl, v) => {
                 const l = pl.links.find((x) => x.id === built.slice(5));
                 const side = l && (key === 'back' ? l.back : l);
-                if (side && side.startWhen && side.startWhen.kind !== v) side.startWhen = newStart(pl, l, key, v);
+                if (side && side[prop] && side[prop].kind !== v) side[prop] = newCond(pl, l, key, which, v);
             },
         });
-        const setC = (fn) => setR((x, v) => { if (x.startWhen) fn(x.startWhen, v); });
+        const setC = (fn) => setR((x, v) => { if (x[prop]) fn(x[prop], v); });
         if (c.kind === 'age') {
-            html += field('Age', `${key}.startWhen.age`, {
+            html += field('Age', `${key}.${prop}.age`, {
                 type: 'number', min: P.GOAL_AGE.min, max: P.GOAL_AGE.max, suffix: 'yrs', decimals: true,
                 get: () => C().age,
                 set: setC((x, v) => { x.age = v; }),
             });
-            html += row('Starts', `<span class="insp-static" data-starts="${key}">${esc(startsLabel(plan(), c))}</span>`);
+        }
+        if (c.kind === 'age' || c.kind === 'retire') {
+            // The retirement age is the plan's (its Timeline), so it has no field here.
+            html += row(at, `<span class="insp-static" data-cond-at="${which}:${key}">${esc(startsLabel(plan(), c))}</span>`);
         } else {
             const accounts = plan().nodes.filter((n) => D.roleOf(n) === 'account');
-            html += field('Account', `${key}.startWhen.account`, {
+            html += field('Account', `${key}.${prop}.account`, {
                 type: 'select', rebuild: true,
                 options: [...(c.account ? [] : [['', 'Pick an account']]), ...accounts.map((n) => [n.id, n.name])],
                 get: () => C().account || '',
                 set: setC((x, v) => { x.account = v || null; }),
             });
-            html += field('Reaches', `${key}.startWhen.amount`, {
+            html += field('Reaches', `${key}.${prop}.amount`, {
                 type: 'money', min: 0, max: P.LIMITS.money,
                 get: () => C().amount,
                 set: setC((x, v) => { x.amount = v; }),
@@ -686,26 +706,32 @@
         return html;
     }
 
-    /** The month an age start is met, for its Starts row: 'Nov 2061'. */
+    /** The month an age start or stop is met, for its Starts or Stops row:
+     *  'Nov 2061', or 'Age 65 · Nov 2061' at the retirement age. */
     function startsLabel(p, c) {
-        if (!c || c.kind !== 'age') return '';
+        if (!c || (c.kind !== 'age' && c.kind !== 'retire')) return '';
+        if (c.kind === 'retire' && p.settings.retireAge == null) return 'Needs a retirement age goal (plan Timeline)';
         const ym = P.startAgeMonth(p, c);
-        return ym ? P.ymLabel(ym) : 'Needs your age (plan Timeline)';
+        if (!ym) return 'Needs your age (plan Timeline)';
+        return c.kind === 'retire' ? `Age ${Fmt.number(p.settings.retireAge, 1)} · ${P.ymLabel(ym)}` : P.ymLabel(ym);
     }
 
-    /** A new start condition for a side of `l` in `pl`: an age (65, or the
-     *  next birthday past it), or the size of the account the side draws
-     *  from (else the first account), reaching $100,000. */
-    function newStart(pl, l, key, kind) {
+    /** A new start or stop condition for a side of `l` in `pl`. With no kind
+     *  given: the retirement age when the plan has one, else an age. An age
+     *  is 65 (or the next birthday past it). A start's account size is the
+     *  account the side draws from reaching $100,000; a stop's is the account
+     *  it fills reaching $1,000,000 (else the first account). */
+    function newCond(pl, l, key, which, kind = pl.settings.retireAge != null ? 'retire' : 'age') {
+        if (kind === 'retire') return { kind: 'retire' };
         if (kind === 'age') {
             const age = pl.settings.age;
             return { kind: 'age', age: age != null && age >= 65 ? Math.floor(age) + 1 : 65 };
         }
         const isAcct = (id) => { const n = pl.nodes.find((x) => x.id === id); return n && D.roleOf(n) === 'account'; };
-        const own = key === 'back' ? l.to : l.from;
+        const [own, other] = (key === 'back') === (which === 'stop') ? [l.from, l.to] : [l.to, l.from];
         const first = pl.nodes.find((n) => D.roleOf(n) === 'account');
-        const account = isAcct(own) ? own : isAcct(l.to) ? l.to : first ? first.id : null;
-        return { kind: 'balance', account, amount: 100000 };
+        const account = isAcct(own) ? own : isAcct(other) ? other : first ? first.id : null;
+        return { kind: 'balance', account, amount: which === 'stop' ? 1000000 : 100000 };
     }
 
     /** Reading and editing a two-way link's way back. */
@@ -935,27 +961,29 @@
             rebuild();
             return;
         }
-        // A side's Start: Now, or When a condition is met (an age, to begin with).
-        const startBtn = e.target.closest('[data-start]');
-        if (startBtn) {
+        // A side's Start (Now) or Stop (Never), or When a condition is met
+        // (the retirement age or an age, to begin with: newCond).
+        const condBtn = e.target.closest('[data-cond]');
+        if (condBtn) {
             const id = built.slice(5);
-            const [key, v] = startBtn.dataset.start.split(':');
+            const [which, key, v] = condBtn.dataset.cond.split(':');
+            const prop = COND[which].prop;
             Store.edit((pl) => {
                 const l = pl.links.find((x) => x.id === id);
                 const side = l && (key === 'back' ? l.back : l);
-                if (!side || (v === 'when') === !!side.startWhen) return false;
-                if (v === 'now') {
-                    delete side.startWhen;
-                    if (key === 'back') side.startWhen = null;
+                if (!side || (v === 'when') === !!side[prop]) return false;
+                if (v !== 'when') {
+                    delete side[prop];
+                    if (key === 'back') side[prop] = null;
                     // Sent once and starting now, it needs a date of its own.
-                    if (side.when === 'once' && !side.date) side.date = P.ymAdd(pl.settings.start, 12);
+                    if (which === 'start' && side.when === 'once' && !side.date) side.date = P.ymAdd(pl.settings.start, 12);
                 } else {
-                    side.startWhen = newStart(pl, l, key, 'age');
+                    side[prop] = newCond(pl, l, key, which);
                 }
                 return true;
             });
             rebuild();
-            root.querySelector(`[data-start="${startBtn.dataset.start}"]`)?.focus();
+            root.querySelector(`[data-cond="${condBtn.dataset.cond}"]`)?.focus();
             return;
         }
         const act = e.target.closest('[data-act]');
@@ -1038,10 +1066,10 @@
             const l = Store.link(built.slice(5));
             // A two-way link's way back has fields of its own (and none once it is one-way).
             const startSig = (c) => (c ? `${c.kind}:${c.account || ''}` : 'now');
-            const back = l && l.back ? `${l.back.mode}|${l.back.when}|${startSig(l.back.startWhen)}` : 'one-way';
+            const back = l && l.back ? `${l.back.mode}|${l.back.when}|${startSig(l.back.startWhen)}|${startSig(l.back.stopWhen)}` : 'one-way';
             // An account-size start lists the plan's accounts.
             const accounts = p.nodes.filter((a) => D.roleOf(a) === 'account').map((a) => `${a.id}:${a.name}`).join(',');
-            return l ? `${l.mode}|${l.basis}|${l.when}|${Store.node(l.from)?.params.start}|${startSig(l.startWhen)}|${back}|${accounts}` : '';
+            return l ? `${l.mode}|${l.basis}|${l.when}|${Store.node(l.from)?.params.start}|${startSig(l.startWhen)}|${startSig(l.stopWhen)}|${back}|${accounts}` : '';
         }
         return '';
     }

@@ -11,8 +11,14 @@
 //                        results is null for a plan the engine failed on
 //   Runs.all({ years })  the same, every plan run over `years` instead
 //                        (Compare); the plans are not changed
+//   Runs.forGoals(plan)  one plan's run over the goal horizon (CitrineGoals.
+//                        horizon), whatever length is on show: what every goal
+//                        status is read from
+//   Runs.allForGoals()   Runs.all() over the goal horizon
 
 (function () {
+    const goalYears = () => window.CitrineGoals.HORIZON_YEARS;
+
     const cache = new Map();   // `${plan id}|${years}` → { updatedAt, results }
 
     /** One plan's results over `years`, or null if the engine failed on it. */
@@ -44,5 +50,8 @@
         }
     });
 
-    window.Runs = { all };
+    const forGoals = (plan) => of(plan, goalYears());
+    const allForGoals = () => all({ years: goalYears() });
+
+    window.Runs = { all, forGoals, allForGoals };
 }());

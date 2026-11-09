@@ -23,7 +23,7 @@
 //
 //   Report.print({ entries: [{ plan, results }], goals, title })
 //
-// Needs: escapeHtml, Fmt, CitrinePlan, CitrineGoals, CitrineSummary, Describe.
+// Needs: escapeHtml, Fmt, CitrinePlan, CitrineEngine, CitrineGoals, CitrineSummary, Describe.
 // Used by the app (shell/exports-ui.js) and the export page for lapsed
 // subscribers (shell/export-page.js).
 
@@ -236,11 +236,20 @@
         </div>`;
     }
 
-    function goalsTable(plan, res, goals) {
+    /** Goals are judged over the goal horizon, not the length the report
+     *  covers, so their statuses match the Goals page. */
+    function goalsTable(plan, goals) {
         if (!goals.length) return '';
+        let res = null;
+        try {
+            res = window.CitrineEngine.simulate(G.horizon(plan));
+        } catch (e) {
+            console.error('[report] goal run failed', plan.id, e);
+        }
+        if (!res) return '';
         const evs = G.evaluate(plan, res, goals);
         const rows = goals.map((goal, i) => {
-            const st = D.goalStatus(evs[i], plan, res.months);
+            const st = D.goalStatus(evs[i], plan);
             return `<tr><th scope="row">${esc(goal.name)}</th><td>${esc(D.goalSentence(goal))}</td>
                 <td>${esc(st.text)}${st.detail ? `<div class="report-muted">${esc(st.detail)}</div>` : ''}</td></tr>`;
         }).join('');
@@ -294,7 +303,7 @@
             ${headlineFigures(plan, res)}
             <div class="report-figure"><h3>Net worth over time</h3>${worthChart(plan, res)}</div>
             <div class="report-figure"><h3>Cash flow</h3>${flowChart(plan, res)}</div>
-            ${goalsTable(plan, res, goals)}
+            ${goalsTable(plan, goals)}
             ${yearTable(plan, res)}
             ${balancesTable(plan, res)}
             <p class="report-note">Projections are estimates from the figures in the plan, not advice. Amounts are in each month's money.</p>

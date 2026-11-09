@@ -76,6 +76,31 @@ html[data-theme="dark"] {
 /* ── The goal list ──────────────────────────────────────────────────────── */
 .goals-body { padding-block: var(--space-4); }
 .goal-row { flex-wrap: wrap; gap: var(--space-12) var(--space-24); }
+/* The handle a goal is dragged by (or moved with the arrow keys). The meta's
+   16px gap is pulled in so the handle sits close to the goal it moves. */
+.goal-handle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 20px;
+    height: 32px;
+    margin-inline: -4px calc(-1 * var(--space-8));
+    padding: 0;
+    border: 0;
+    border-radius: var(--border-radius-sm);
+    background: transparent;
+    color: var(--color-text-tertiary);
+    cursor: grab;
+    touch-action: none;
+}
+.goal-handle .icon { width: 16px; height: 16px; }
+.goal-handle:hover { background: var(--color-bg-text-hover); color: var(--color-text-secondary); }
+.goal-handle:focus-visible { outline: 4px solid var(--color-primary-border); outline-offset: 1px; }
+.goal-row.is-dragging { opacity: 0.5; }
+.goal-row.is-dragging .goal-handle { cursor: grabbing; }
+.goal-row.is-drop-before { box-shadow: inset 0 2px 0 var(--color-primary); }
+.goal-row.is-drop-after  { box-shadow: inset 0 -2px 0 var(--color-primary); }
 .goal-avatar {
     display: inline-flex;
     align-items: center;

@@ -87,48 +87,42 @@ test('a goal is met at the first point its rule holds', () => {
     goal(plan, { metric: 'net-worth', op: 'gte', unit: 'amount', value: 5000 });
     const ev = only(plan);
     assert.equal(ev.month, 5);
-    assert.equal(ev.status, 'reached');
+    assert.equal(ev.status, 'met');
     close(ev.value, 5000);
     close(ev.target, 5000);
 });
 
-test('a deadline makes a goal on time, late, or behind', () => {
+test('a deadline makes a goal met (on time or early), late, or never met', () => {
     const due = (by, value = 5000) => {
         const plan = savingPlan();
         goal(plan, { metric: 'net-worth', value, due: 'date', by });
         return only(plan);
     };
-    assert.equal(due('2026-06').status, 'reached');
+    assert.equal(due('2026-06').status, 'met');
     assert.equal(due('2026-04').status, 'late');
-    const behind = due('2027-06', 1e6);
-    assert.equal(behind.status, 'behind');
-    assert.equal(behind.month, null);
-    close(behind.value, 24000);          // read at the plan's end
-    // No deadline, or one past the plan's end: not met yet, but not late either.
-    assert.equal(due('2040-01', 1e6).status, 'open');
-    const plan = savingPlan();
-    goal(plan, { value: 1e6 });
-    assert.equal(only(plan).status, 'open');
+    const never = due('2027-06', 1e6);
+    assert.equal(never.status, 'unmet');
+    assert.equal(never.month, null);
+    assert.equal(never.months, 24);
+    close(never.value, 24000);          // read at the run's end
+    // A deadline past the run's end changes nothing: never met is never met.
+    assert.equal(due('2040-01', 1e6).status, 'unmet');
 });
 
-test('progress is how far toward the target the plan gets by the deadline', () => {
+test('progress is 1 once met, late or not; unmet, the closest the plan ever comes', () => {
     const due = (by, value = 5000) => {
         const plan = savingPlan();
         goal(plan, { metric: 'net-worth', value, due: 'date', by });
         return only(plan);
     };
-    const onTime = due('2026-06');
-    close(onTime.progress, 1);
-    // Met in May, but due in April: 3,000 of the 5,000 by then.
+    close(due('2026-06').progress, 1);
     const late = due('2026-04');
-    assert.equal(late.progressAt, 3);
-    close(late.progress, 0.6);
-    // Never met: read at the deadline, 17 months in.
-    close(due('2027-06', 100000).progress, 0.17);
-    // A deadline past the plan's end reads at the end (24 months).
-    const open = due('2040-01', 100000);
-    assert.equal(open.progressAt, 24);
-    close(open.progress, 0.24);
+    close(late.progress, 1);
+    assert.equal(late.progressAt, 5);
+    // Never met: 24,000 of 100,000 at the run's end, its closest.
+    const never = due('2027-06', 100000);
+    assert.equal(never.progressAt, 24);
+    close(never.progress, 0.24);
 });
 
 test('"is at most" progress is the share of the way down from the highest point', () => {
@@ -137,15 +131,19 @@ test('"is at most" progress is the share of the way down from the highest point'
     const loan = node(plan, 'loan', { balance: 1200, rate: 0 });
     link(plan, pay, loan, { mode: 'fixed', value: 100 });
     goal(plan, { metric: 'debt', op: 'lte', value: 0, due: 'date', by: '2026-04' });
-    const ev = only(plan);
-    assert.equal(ev.status, 'late');
-    close(ev.progress, 0.25);   // 1,200 owed at the start, 900 by the deadline
+    goal(plan, { metric: 'debt', op: 'lte', value: -1, due: 'date', by: '2026-04' });
+    const [late, never] = evaluate(plan);
+    assert.equal(late.status, 'late');
+    assert.equal(never.status, 'unmet');
+    close(never.progress, 1200 / 1201);   // paid off by month 12, 1 short of -1
+    assert.equal(never.progressAt, 12);
 });
 
-test('a goal that cannot be measured has no progress', () => {
+test('a goal the plan cannot measure is blocked, with no progress', () => {
     const plan = savingPlan();
     goal(plan, { metric: 'net-worth', value: 5000, due: 'age', age: 65 });
     const ev = only(plan);
+    assert.equal(ev.status, 'blocked');
     assert.equal(ev.blocked, 'no-age');
     assert.equal(ev.progress, null);
 });
@@ -155,7 +153,24 @@ test('a goal met at the plan start is on time even when its deadline has passed'
     goal(plan, { value: 10000, due: 'date', by: '2020-01' });
     const ev = only(plan);
     assert.equal(ev.month, 0);
-    assert.equal(ev.status, 'reached');
+    assert.equal(ev.status, 'met');
+});
+
+// ── The goal horizon ─────────────────────────────────────────────────────────
+
+test('goals are judged over the longest plan length, whatever length is viewed', () => {
+    const plan = savingPlan();                       // a 2-year plan
+    goal(plan, { metric: 'net-worth', value: 100000, due: 'date', by: '2040-01' });
+    assert.equal(only(plan).status, 'unmet', 'not met inside two years');
+    const v = Plan.validatePlan(plan);
+    const long = Goals.horizon(v);
+    assert.equal(long.settings.years, Plan.LIMITS.years);
+    assert.equal(v.settings.years, 2, 'the plan itself is not changed');
+    const ev = Goals.evaluate(v, simulate(long), plan.goals)[0];
+    assert.equal(ev.status, 'met');                  // 1,000 a month: 100 months in
+    assert.equal(ev.month, 100);
+    assert.equal(ev.months, Plan.LIMITS.years * 12);
+    assert.equal(Goals.horizon(long), long, 'already at the horizon');
 });
 
 test('account balance is every account plus Unassigned', () => {
@@ -245,7 +260,7 @@ test('an age deadline is the month the plan\'s age reaches it', () => {
     assert.equal(Plan.goalDate(Plan.validatePlan(plan), g), '2027-01');
     const ev = only(plan);
     assert.equal(ev.byIdx, 12);
-    assert.equal(ev.status, 'behind');   // 200,000 + 24 × 2,000 never reaches 300,000
+    assert.equal(ev.status, 'unmet');    // 200,000 + 24 × 2,000 never reaches 300,000
     plan.settings.age = 64.5;
     assert.equal(only(plan).byIdx, 6, 'half a year older, the same age comes sooner');
 });
@@ -264,8 +279,8 @@ test('measured in real money, growth that only keeps up with inflation reaches n
     const plan = mkPlan('2026-01', 3, 5);
     node(plan, 'bank-account', { balance: 10000, rate: 5 });
     goal(plan, { value: 10400 });
-    assert.equal(only(plan).status, 'reached');
-    assert.equal(only(plan, { real: true }).status, 'open');
+    assert.equal(only(plan).status, 'met');
+    assert.equal(only(plan, { real: true }).status, 'unmet');
 });
 
 // ── The goal list ────────────────────────────────────────────────────────────

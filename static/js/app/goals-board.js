@@ -6,12 +6,19 @@
 //
 //   header        the plan the goals are measured in (a dropdown of every
 //                 plan; picking one opens it) and Add goal
-//   figures       how many goals that plan meets on time, late, or not at all
-//   the list      each goal: its rule as a sentence, how far toward it the plan
-//                 gets by its deadline (CitrineGoals' progress), and its
-//                 status. Edit opens the goal editor; Delete removes it, and
-//                 the toast's Undo (or Ctrl+Z) brings it back.
+//   figures       how many goals that plan meets on time, late, never, or
+//                 cannot measure
+//   the list      each goal: its rule as a sentence, how close the plan comes
+//                 to it (CitrineGoals' progress), and its status. Edit opens
+//                 the goal editor; Delete removes it, and the toast's Undo (or
+//                 Ctrl+Z) brings it back. Its handle drags it to a new place
+//                 in the list (or, focused, the arrow keys move it); the
+//                 order is the list's everywhere, the table below included.
 //   across plans  every goal against every plan, one status each
+//
+// Every status here is read off a run over the goal horizon (Runs.forGoals),
+// not the length on show elsewhere: a goal asks whether the plan ever meets
+// it, so the length chips in Analyze and Compare never change it.
 //
 // A goal is one rule (plan.js has its shape), written in the goal editor, a
 // modal form: its name, measure, comparison, target (an amount, a multiple of
@@ -44,7 +51,7 @@
         muted: { tone: '', icon: 'minus-circle' },
     };
     // How each status reads as progress: Ant's Progress statuses.
-    const PROGRESS_STATUS = { reached: 'success', late: 'warning', behind: 'exception', open: 'normal' };
+    const PROGRESS_STATUS = { met: 'success', late: 'warning', unmet: 'exception' };
 
     root.innerHTML = `
         <div class="page scroll-y">
@@ -55,6 +62,7 @@
             <div class="stat-cards" data-stats></div>
             <section class="card" aria-label="Your goals">
                 <div class="card-body goals-body">
+                    <p class="sr-only" id="goal-handle-hint">Use the up and down arrow keys to move the goal.</p>
                     <ul class="list goals-list"></ul>
                     <div data-empty hidden>${K.empty({
                         icon: 'target',
@@ -83,22 +91,21 @@
 
     // ── Measuring ──────────────────────────────────────────────────────────
 
-    /** The open plan's results, when they cover every module (a redraw can
-     *  land between an edit and its run; the run that follows draws it). */
+    /** The open plan's run over the goal horizon, or null when it failed. */
     function openRun() {
-        const { plan, results } = Store.state;
-        return plan && results && plan.nodes.every((n) => results.nodes[n.id]) ? { plan, results } : null;
+        const { plan } = Store.state;
+        const results = plan ? Runs.forGoals(plan) : null;
+        return results ? { plan, results } : null;
     }
 
     /** A status in a few words for a narrow table cell; the full words are its title. */
-    function shortStatus(ev, plan, months) {
-        const full = D.goalStatus(ev, plan, months);
+    function shortStatus(ev, plan) {
+        const full = D.goalStatus(ev, plan);
         const title = full.detail ? `${full.text} · ${full.detail}` : full.text;
-        if (ev.blocked) return { text: 'Cannot measure', tone: '', icon: 'minus-circle', title };
-        if (ev.status === 'reached') return { text: ev.month === 0 ? 'Already' : D.monthLabel(plan, ev.month), tone: 'success', icon: 'check-circle', title };
+        if (ev.status === 'blocked') return { text: 'Cannot measure', tone: '', icon: 'minus-circle', title };
+        if (ev.status === 'met') return { text: ev.month === 0 ? 'Already' : D.monthLabel(plan, ev.month), tone: 'success', icon: 'check-circle', title };
         if (ev.status === 'late') return { text: `${D.monthLabel(plan, ev.month)} · late`, tone: 'warning', icon: 'clock', title };
-        if (ev.status === 'behind') return { text: 'Not met', tone: 'error', icon: 'x-circle', title };
-        return { text: ev.byIdx != null && ev.byIdx > months ? 'Due after the end' : 'Not met', tone: '', icon: 'minus-circle', title };
+        return { text: 'Never met', tone: 'error', icon: 'x-circle', title };
     }
 
     // ── Render ─────────────────────────────────────────────────────────────
@@ -107,42 +114,49 @@
         const n = evs.length;
         statsEl.hidden = !n || evs.some((e) => !e);
         if (statsEl.hidden) return;
-        const count = (fn) => evs.filter(fn).length;
-        const onTime = count((e) => !e.blocked && e.status === 'reached');
-        const late = count((e) => !e.blocked && e.status === 'late');
-        const missed = count((e) => !e.blocked && e.status === 'behind');
-        const unknown = n - onTime - late - missed;
+        const count = (status) => evs.filter((e) => e.status === status).length;
+        const met = count('met');
+        const late = count('late');
+        const never = count('unmet');
+        const blocked = count('blocked');
         const of = `of ${n}`;
         statsEl.innerHTML = [
-            K.statCard({ title: 'Met on time', value: String(onTime), suffix: of, icon: 'check-circle', tone: onTime ? 'up' : 'muted' }),
+            K.statCard({ title: 'Met on time', value: String(met), suffix: of, icon: 'check-circle', tone: met ? 'up' : 'muted' }),
             K.statCard({ title: 'Met late', value: String(late), suffix: of, icon: 'clock', tone: late ? 'warn' : 'muted' }),
-            K.statCard({ title: 'Not met by the deadline', value: String(missed), suffix: of, icon: 'x-circle', tone: missed ? 'down' : 'muted' }),
-            unknown ? K.statCard({ title: 'Not decided in this plan', value: String(unknown), suffix: of, icon: 'minus-circle', tone: 'muted' }) : '',
+            K.statCard({ title: 'Never met', value: String(never), suffix: of, icon: 'x-circle', tone: never ? 'down' : 'muted' }),
+            blocked ? K.statCard({ title: 'Cannot be measured', value: String(blocked), suffix: of, icon: 'minus-circle', tone: 'muted' }) : '',
         ].join('');
     }
 
-    /** One goal in the list: its colour and measure, its name and rule, its
-     *  progress, its status, and its actions. */
-    function row(g, ev, run) {
+    /** One goal in the list: its handle (with more than one goal), its colour
+     *  and measure, its name and rule, its progress, its status, and its
+     *  actions. `i` of `count` is its place in the list. */
+    function row(g, ev, run, i, count) {
         const name = g.name || 'Goal';
+        const handle = count > 1
+            ? `<button class="goal-handle" type="button" data-handle
+                aria-label="Reorder ${esc(name)}, ${i + 1} of ${count}" aria-describedby="goal-handle-hint"
+                title="Drag to reorder">${iconSvg('dots-six-vertical')}</button>`
+            : '';
         let progress = '';
         let status = '';
         if (ev && run) {
-            const st = D.goalStatus(ev, run.plan, run.results.months);
+            const st = D.goalStatus(ev, run.plan);
             const look = STATUS_TAG[st.tone];
             status = K.tag(st.detail ? `${st.text} · ${st.detail}` : st.text, { tone: look.tone, icon: look.icon });
             if (ev.progress == null) {
                 progress = `<span class="goal-progress-note">${esc(st.text)}</span>`;
             } else {
-                const when = D.monthLabel(run.plan, ev.progressAt);
-                const caption = ev.status === 'reached' ? 'Met in time'
-                    : ev.byIdx != null && ev.byIdx <= run.results.months ? `By the deadline, ${when}` : `By the plan's end, ${when}`;
+                const caption = ev.status === 'met' ? 'Met in time'
+                    : ev.status === 'late' ? 'Met, after the deadline'
+                    : `Closest, ${D.monthLabel(run.plan, ev.progressAt)}`;
                 progress = `${K.progress(ev.progress, { status: PROGRESS_STATUS[ev.status], label: `${name}: progress, ${caption}` })}
                     <span class="goal-progress-note">${esc(caption)}</span>`;
             }
         }
         return `<li class="list-item goal-row${fresh === g.id ? ' is-new' : ''}" data-goal="${esc(g.id)}">
             <div class="list-item-meta">
+                ${handle}
                 <span class="goal-avatar" data-color="${esc(g.color)}" aria-hidden="true">${iconSvg(D.GOAL_METRICS[g.metric].icon)}</span>
                 <div class="goal-text">
                     <p class="list-item-title">${esc(name)}</p>
@@ -161,12 +175,12 @@
     /** Every goal against every plan, each plan over its own length. */
     function renderMatrix(goals) {
         if (!goals.length) { matrixEl.innerHTML = ''; return; }
-        const cols = Runs.all().map(({ plan, results }) => ({
-            plan, results, evs: results ? G.evaluate(plan, results, goals) : null,
+        const cols = Runs.allForGoals().map(({ plan, results }) => ({
+            plan, evs: results ? G.evaluate(plan, results, goals) : null,
         }));
         const cell = (c, i) => {
             if (!c.evs) return '<td class="is-muted">—</td>';
-            const s = shortStatus(c.evs[i], c.plan, c.results.months);
+            const s = shortStatus(c.evs[i], c.plan);
             return `<td>${K.tag(s.text, { tone: s.tone, icon: s.icon, title: s.title })}</td>`;
         };
         matrixEl.innerHTML = `<table class="data-table table--md">
@@ -188,7 +202,7 @@
         matrixCard.hidden = !goals.length;
         const evs = run ? G.evaluate(run.plan, run.results, goals) : goals.map(() => null);
         renderStats(evs);
-        list.innerHTML = goals.map((g, i) => row(g, evs[i], run)).join('');
+        list.innerHTML = goals.map((g, i) => row(g, evs[i], run, i, goals.length)).join('');
         renderMatrix(goals);
         if (fresh) {
             const el = list.querySelector(`[data-goal="${CSS.escape(fresh)}"]`);
@@ -483,6 +497,78 @@
                 break;
             }
         }
+    });
+
+    // ── Reordering ─────────────────────────────────────────────────────────
+    // A goal's handle drags it up or down the list (one undo step per drop),
+    // as the plan list in the navigation does; with the handle focused, the
+    // up and down arrows move it one place, Home and End to either end.
+
+    /** Move goal `id` to `to` and keep its handle focused, so the keys can
+     *  carry on and a screen reader reads its new place. */
+    function moveTo(id, to) {
+        if (!Store.moveGoal(id, to)) return;
+        list.querySelector(`[data-goal="${CSS.escape(id)}"] [data-handle]`)?.focus();
+    }
+
+    let drag = null;
+
+    list.addEventListener('pointerdown', (e) => {
+        const handle = e.target.closest('[data-handle]');
+        if (!handle || e.button !== 0) return;
+        e.preventDefault();
+        const item = handle.closest('[data-goal]');
+        drag = { id: item.dataset.goal, y0: e.clientY, active: false, item, target: null };
+        handle.setPointerCapture(e.pointerId);
+    });
+
+    list.addEventListener('pointermove', (e) => {
+        if (!drag) return;
+        if (!drag.active && Math.abs(e.clientY - drag.y0) < 5) return;
+        drag.active = true;
+        drag.item.classList.add('is-dragging');
+        const items = [...list.querySelectorAll('[data-goal]')];
+        items.forEach((t) => t.classList.remove('is-drop-before', 'is-drop-after'));
+        const over = items.find((t) => {
+            const r = t.getBoundingClientRect();
+            return e.clientY >= r.top && e.clientY < r.bottom;
+        });
+        if (over && over !== drag.item) {
+            const r = over.getBoundingClientRect();
+            const before = e.clientY < r.top + r.height / 2;
+            over.classList.add(before ? 'is-drop-before' : 'is-drop-after');
+            drag.target = { id: over.dataset.goal, before };
+        } else {
+            drag.target = null;
+        }
+    });
+
+    function endDrag() {
+        if (!drag) return;
+        const d = drag;
+        drag = null;
+        for (const t of list.querySelectorAll('.is-dragging, .is-drop-before, .is-drop-after')) {
+            t.classList.remove('is-dragging', 'is-drop-before', 'is-drop-after');
+        }
+        if (!d.active || !d.target) return;
+        const order = Store.state.goals.map((g) => g.id).filter((x) => x !== d.id);
+        let i = order.indexOf(d.target.id);
+        if (i < 0) return;
+        if (!d.target.before) i += 1;
+        moveTo(d.id, i);
+    }
+    list.addEventListener('pointerup', endDrag);
+    list.addEventListener('pointercancel', endDrag);
+
+    list.addEventListener('keydown', (e) => {
+        const handle = e.target.closest('[data-handle]');
+        if (!handle) return;
+        const id = handle.closest('[data-goal]').dataset.goal;
+        const at = Store.state.goals.findIndex((g) => g.id === id);
+        const to = { ArrowUp: at - 1, ArrowDown: at + 1, Home: 0, End: Store.state.goals.length - 1 }[e.key];
+        if (to == null) return;
+        e.preventDefault();
+        moveTo(id, to);
     });
 
     Store.on((c) => {

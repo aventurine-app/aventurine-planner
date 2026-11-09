@@ -110,10 +110,11 @@
      *  rule behind them when that is not a fixed amount ('$1,200/mo' and
      *  '20%'). `amount` is one month's flow, or with `perMonth` the plan's
      *  monthly average; over the whole plan a fixed link shows its own amount
-     *  and timing instead ('$1,800/mo', '$5K/yr'). */
-    function linkFigure(link, from, amount, perMonth) {
+     *  and timing instead ('$1,800/mo', '$5K/yr'). With `perYear`, `amount`
+     *  is a year's (a link sent yearly, in a month): '$24K/yr'. */
+    function linkFigure(link, from, amount, perMonth, perYear = false) {
         if (link.mode === 'fixed' && perMonth) return { amount: linkShort(link, from), rule: null };
-        return { amount: `${compact(amount)}${perMonth ? '/mo' : ''}`, rule: linkRule(link, from) };
+        return { amount: `${compact(amount)}${perMonth ? '/mo' : perYear ? '/yr' : ''}`, rule: linkRule(link, from) };
     }
 
     // ── Two-way links ──────────────────────────────────────────────────────
@@ -133,29 +134,50 @@
     }
 
     /** The way back's dollars and rule on the canvas, as linkFigure. */
-    function backFigure(link, to, amount, perMonth) {
-        return linkFigure(backRule(link), to, amount, perMonth);
+    function backFigure(link, to, amount, perMonth, perYear = false) {
+        return linkFigure(backRule(link), to, amount, perMonth, perYear);
     }
 
     /** When a side of a link starts, as words, or '' when it starts now:
      *  'starting at age 65 (Nov 2061)', 'starting when Investment reaches
      *  $1M'. Sent once, it is sent then: 'at age 65 (Nov 2061)'. */
     function startWords(cond, once, plan) {
+        return condWords(cond, once ? '' : 'starting ', plan);
+    }
+
+    /** When a side of a link stops, as words, or '' when it runs on:
+     *  'stopping at retirement (age 65, Jan 2056)'. */
+    function stopWords(cond, plan) {
+        return condWords(cond, 'stopping ', plan);
+    }
+
+    /** A start or stop condition as words, after `lead`. */
+    function condWords(cond, lead, plan) {
         if (!cond) return '';
         const b = (s) => `<b>${escapeHtml(s)}</b>`;
-        const lead = once ? '' : 'starting ';
         if (cond.kind === 'age') {
             const ym = plan && P.startAgeMonth(plan, cond);
             return `${lead}at age ${b(Fmt.number(cond.age, 1))}${ym ? ` (${escapeHtml(P.ymLabel(ym))})` : ''}`;
+        }
+        if (cond.kind === 'retire') {
+            const age = plan && plan.settings.retireAge;
+            const ym = plan && P.startAgeMonth(plan, cond);
+            const at = age != null ? ` (age ${escapeHtml(Fmt.number(age, 1))}${ym ? `, ${escapeHtml(P.ymLabel(ym))}` : ''})` : '';
+            return `${lead}at ${b('retirement')}${at}`;
         }
         const acct = cond.account && plan && plan.nodes.find((n) => n.id === cond.account);
         return `${lead}when ${acct ? b(acct.name) : 'an account'} reaches ${b(Fmt.money(cond.amount))}`;
     }
 
-    /** Why a side of a link never starts, for its warning. */
-    function startProblem(cond, why, plan) {
-        if (why === 'no-age') return `it waits for age ${Fmt.number(cond.age, 1)}, but the plan has no age set (Your age, in the plan’s Timeline)`;
-        if (why === 'no-account') return 'no account is picked for its Start';
+    /** Why a side of a link never starts (or never stops, `verb` 'stop'), for its warning. */
+    function startProblem(cond, why, plan, verb = 'start') {
+        const waits = verb === 'stop' ? 'it stops at' : 'it waits for';
+        if (why === 'no-retire-age') return `${waits} retirement, but the plan has no retirement age goal set (in the plan’s Timeline)`;
+        if (why === 'no-age') {
+            const age = cond.kind === 'retire' ? plan.settings.retireAge : cond.age;
+            return `${waits} age ${Fmt.number(age, 1)}, but the plan has no age set (Your age, in the plan’s Timeline)`;
+        }
+        if (why === 'no-account') return `no account is picked for its ${verb === 'stop' ? 'Stop' : 'Start'}`;
         const acct = plan.nodes.find((n) => n.id === cond.account);
         return `${acct ? acct.name : 'its account'} never reaches ${Fmt.money(cond.amount)}`;
     }
@@ -176,6 +198,8 @@
         if (back.mode === 'fixed' && back.growth) parts.push(`growing ${b(`${Fmt.number(back.growth, 2)}%`)} a year`);
         const starts = startWords(back.startWhen, back.when === 'once', plan);
         if (starts) parts.push(starts);
+        const stops = back.when === 'once' ? '' : stopWords(back.stopWhen, plan);
+        if (stops) parts.push(stops);
         return `${parts.join(', ')}.`;
     }
 
@@ -223,6 +247,8 @@
         else if (link.end) parts.push(`until ${P.ymLabel(link.end)}`);
         const starts = startWords(link.startWhen, link.when === 'once', Store.state.plan);
         if (starts) parts.push(starts);
+        const stops = link.when === 'once' ? '' : stopWords(link.stopWhen, Store.state.plan);
+        if (stops) parts.push(stops);
         return `${parts.join(', ')}.`;
     }
 
@@ -241,6 +267,8 @@
         else if (link.end) parts.push(`until ${P.ymLabel(link.end)}`);
         const starts = startWords(link.startWhen, false, Store.state.plan);
         if (starts) parts.push(starts);
+        const stops = stopWords(link.stopWhen, Store.state.plan);
+        if (stops) parts.push(stops);
         return `${parts.join(', ')}.`;
     }
 
@@ -300,7 +328,8 @@
             const v = node.params;
             if (v.per === 'once') return v.start ? P.ymLabel(v.start) : 'once';
             const until = v.stopBy === 'date' && v.end ? ` · until ${P.ymLabel(v.end)}`
-                : v.stopBy === 'age' && v.endAge != null ? ` · until age ${Fmt.number(v.endAge, 0)}` : '';
+                : v.stopBy === 'age' && v.endAge != null ? ` · until age ${Fmt.number(v.endAge, 0)}`
+                : v.stopBy === 'retire' ? ' · until retirement' : '';
             return `${scheduleShort(v, v.amount)}${until}`;
         }
         if (p.role === 'expense') {
@@ -330,7 +359,7 @@
     // How loud a warning is. A card's high utilization and an expense's cost
     // that no link pays are notices (not a problem yet) and money parked in
     // Unassigned is information; every other warning is a warning.
-    const WARNING_LEVEL = { unassigned: 'info', utilization: 'notice', 'cost-unpaid': 'notice', 'stop-no-age': 'notice', 'stopped-before': 'notice', 'no-start': 'notice' };
+    const WARNING_LEVEL = { unassigned: 'info', utilization: 'notice', 'cost-unpaid': 'notice', 'stop-no-age': 'notice', 'stop-no-retire-age': 'notice', 'stopped-before': 'notice', 'no-start': 'notice', 'no-stop': 'notice' };
 
     /** 'warn', 'notice' or 'info', without writing the warning's sentence. */
     function warningLevel(w) {
@@ -392,8 +421,20 @@
                     text: `${nameOf(plan, a)} to ${nameOf(plan, z)} never starts: ${startProblem(side.startWhen, w.why, plan)}.`,
                 };
             }
+            case 'no-stop': {
+                const l = plan.links.find((x) => x.id === w.linkId);
+                const side = l && (w.back ? l.back : l);
+                if (!side || !side.stopWhen) return { select: null, text: 'A flow never stops.' };
+                const [a, z] = w.back ? [l.to, l.from] : [l.from, l.to];
+                return {
+                    select: { kind: 'link', id: w.linkId },
+                    text: `${nameOf(plan, a)} to ${nameOf(plan, z)} never stops: ${startProblem(side.stopWhen, w.why, plan, 'stop')}.`,
+                };
+            }
             case 'stop-no-age':
                 return { select: node, text: `${name} stops at an age, but the plan has no age set. Set Your age in the plan's Timeline.` };
+            case 'stop-no-retire-age':
+                return { select: node, text: `${name} stops at retirement, but the plan has no retirement age goal set. Set it in the plan's Timeline.` };
             case 'stopped-before':
                 return { select: node, text: `${name} stops before the plan starts, so it pays nothing.` };
             case 'runaway':
@@ -479,13 +520,13 @@
     };
 
     /** A goal's status: `text` in a few words, an optional `detail` beside its
-     *  date, and its tone: 'positive' (met on time), 'warning' (met late),
-     *  'negative' (not met by its deadline) or 'muted' (cannot tell yet).
-     *  `ev` is one of CitrineGoals.evaluate's results; `months` is the plan's
-     *  length. */
-    function goalStatus(ev, plan, months) {
-        if (ev.blocked) return { tone: 'muted', text: BLOCKED[ev.blocked] || 'Cannot measure yet', detail: null };
-        if (ev.status === 'reached') {
+     *  date, and its tone: 'positive' (met on time or early), 'warning' (met
+     *  late), 'negative' (never met) or 'muted' (the plan cannot measure it).
+     *  `ev` is one of CitrineGoals.evaluate's results, from a run over the
+     *  goal horizon. */
+    function goalStatus(ev, plan) {
+        if (ev.status === 'blocked') return { tone: 'muted', text: BLOCKED[ev.blocked] || 'Cannot be measured', detail: null };
+        if (ev.status === 'met') {
             if (ev.month === 0) return { tone: 'positive', text: 'Met already', detail: null };
             const ahead = ev.byIdx != null && ev.byIdx >= 0 ? ev.byIdx - ev.month : null;
             return {
@@ -497,12 +538,7 @@
         if (ev.status === 'late') {
             return { tone: 'warning', text: `Met ${monthLabel(plan, ev.month)}`, detail: `${duration(ev.month - ev.byIdx)} late` };
         }
-        // Due after the plan's end: lengthening the plan would tell.
-        if (ev.status === 'open' && ev.byIdx != null && ev.byIdx > months) {
-            return { tone: 'muted', text: 'Due after the plan ends', detail: monthLabel(plan, ev.byIdx) };
-        }
-        if (ev.status === 'behind') return { tone: 'negative', text: 'Not met', detail: `due ${monthLabel(plan, ev.byIdx)}` };
-        return { tone: 'muted', text: 'Not met', detail: `by ${monthLabel(plan, months)}` };
+        return { tone: 'negative', text: 'Never met', detail: `not within ${duration(ev.months)}` };
     }
 
     window.Describe = {

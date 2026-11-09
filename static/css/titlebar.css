@@ -83,7 +83,7 @@
     margin-right: var(--space-4);
     cursor: default;
 }
-.titlebar-sync .icon { width: 22px; height: 22px; flex: none; }
+.titlebar-sync .icon { width: 20px; height: 20px; flex: none; }
 .titlebar-sync--synced { color: #52c41a; }
 .titlebar-sync--unsynced { color: #fa8c16; }
 .titlebar-sync--offline,

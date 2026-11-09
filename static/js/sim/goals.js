@@ -10,9 +10,18 @@
 // and the goals to measure it by. Pure, like the engine: no DOM, no clock, no
 // randomness.
 //
+//   horizon(plan)                              the plan as goals are judged on
+//                                              it: run over the longest length a
+//                                              plan can have, whatever length is
+//                                              being viewed
 //   evaluate(plan, results, goals, { real })   one status per goal, read off a
-//                                              run, with how far toward it the
-//                                              plan gets by its deadline
+//                                              run, with how close the plan
+//                                              comes to it
+//
+// A goal asks whether a plan EVER meets it, so its status must not change
+// with the length on show (the length chips). Simulate horizon(plan) and
+// evaluate that run for any status the user reads; a shorter run serves only
+// views that mark months inside it (Analyze's goal flags).
 //
 // The measures, at each balance point k (0..months, the moment month k-1 ends,
 // where the net worth series is recorded):
@@ -26,10 +35,12 @@
 //               are left out: what a card buys is spending already.
 //   income      a year of take-home pay (earned less withholding), the same way
 //
-// A goal is met at the first point its rule holds. With a deadline it is on
-// time when that point is at or before the deadline's. A rule that reads a
-// year of income or expenses in a plan that has none is `blocked` (there is
-// nothing to compare), as is an age deadline in a plan whose age is not set.
+// A goal is met at the first point its rule holds: on time (or early) when
+// that point is at or before its deadline's, late when after it, and unmet
+// when the rule never holds in the run. A rule that reads a year of income or
+// expenses in a plan that has none is `blocked`, a goal the plan cannot
+// measure (there is nothing to compare), as is an age deadline in a plan
+// whose age is not set.
 //
 // With `real`, money is measured in the plan's first month's money (deflated
 // at the plan's inflation); an amount in a rule is then taken in today's
@@ -147,16 +158,17 @@
     }
 
     /** One goal's status from a run.
+     *    status    'met' (on time, early, or with no deadline), 'late' (met
+     *              after its deadline), 'unmet' (its rule never holds in the
+     *              run) or 'blocked' (the plan cannot measure it)
      *    month     the point its rule first holds, or null
      *    byIdx     the point its deadline falls on, or null without one
-     *    status    'reached' (on time, or with no deadline), 'late' (met after
-     *              its deadline), 'behind' (not met, its deadline inside the
-     *              plan) or 'open' (not met, no deadline or one past the plan)
+     *    months    the run's length, the span "never" covers
      *    at        the point the figures are read at: when met, else the end
      *    value, target  the two sides of the rule at `at`
-     *    progress  how far toward its target the plan gets by the deadline
-     *              (by the end of the run when the deadline is past it), 0..1:
-     *              1 when met in time; null when blocked
+     *    progress  how close the plan comes to the target, 0..1: 1 once met
+     *              (late or not); the closest it ever comes when unmet; null
+     *              when blocked
      *    progressAt  the point that progress is read at
      *    blocked   'no-age' | 'no-income' | 'no-expenses', or null */
     function evaluateOne(plan, res, def, goal) {
@@ -171,12 +183,28 @@
         const due = Plan.goalDate(plan, goal);
         const byIdx = due ? Plan.ymDiff(plan.settings.start, due) : null;
         let status;
-        if (month != null) status = byIdx == null || month <= Math.max(0, byIdx) ? 'reached' : 'late';
-        else status = byIdx != null && byIdx <= n ? 'behind' : 'open';
+        if (blocked) status = 'blocked';
+        else if (month == null) status = 'unmet';
+        else status = byIdx == null || month <= Math.max(0, byIdx) ? 'met' : 'late';
         const at = month != null ? month : n;
-        const progressAt = byIdx == null ? n : Math.max(0, Math.min(n, byIdx));
-        const progress = blocked ? null : status === 'reached' ? 1 : towards(goal, s, progressAt);
-        return { id: goal.id, month, byIdx, status, at, value: s.value[at], target: s.target[at], progress, progressAt, blocked };
+        let progress = null;
+        let progressAt = at;
+        if (month != null) progress = 1;
+        else if (!blocked) {
+            progress = -1;
+            for (let k = 0; k <= n; k++) {
+                const p = towards(goal, s, k);
+                if (p > progress + 1e-9) { progress = p; progressAt = k; }
+            }
+        }
+        return { id: goal.id, status, month, byIdx, months: n, at, value: s.value[at], target: s.target[at], progress, progressAt, blocked };
+    }
+
+    /** `plan` as goals judge it: over the longest length a plan may have.
+     *  The plan itself is not changed. */
+    function horizon(plan) {
+        const years = Plan.LIMITS.years;
+        return plan.settings.years === years ? plan : { ...plan, settings: { ...plan.settings, years } };
     }
 
     function evaluate(plan, res, goals, { real = false } = {}) {
@@ -184,5 +212,5 @@
         return goals.map((goal) => evaluateOne(plan, res, def, goal));
     }
 
-    return { deflator, evaluate };
+    return { deflator, evaluate, horizon, HORIZON_YEARS: Plan.LIMITS.years };
 }));

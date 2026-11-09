@@ -30,13 +30,15 @@ const UI_ICONS = [
     // A goal's rule: its comparison and deadline (the measures wear module icons),
     // and its card's colour.
     'greater-than-or-equal', 'less-than-or-equal', 'palette',
+    // The handle a goal is dragged by to reorder the list.
+    'dots-six-vertical',
     // Status tags and progress (met, missed, not measured), Compare's swap and
     // its differences up or down.
     'x-circle', 'minus-circle', 'arrows-left-right', 'arrow-up', 'arrow-down',
     // Export: the PDF report, the spreadsheet, the plan file and Download All.
     'file-pdf', 'file-csv', 'file-code', 'file-zip',
-    // The bar's sync status: synced, not synced, offline, and a change on its way.
-    'cloud-check', 'cloud-warning', 'cloud-slash', 'cloud-arrow-up',
+    // The person's age: the canvas's time tag and a goal due by an age.
+    'user',
     // The inspector's icon for a modifier (inspector.js ROLE_ICON).
     'sliders-horizontal',
 ];
