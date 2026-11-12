@@ -477,8 +477,7 @@
                 + (nr.totals.out > 0.5 ? stat('Sent on', money(nr.totals.out)) : '');
         } else if (role === 'debt') {
             const paidOff = r.milestones.find((x) => x.code === 'paid-off' && x.nodeId === node.id);
-            stats = (nr.payment ? stat('Payment', `${money(nr.payment)}/mo`) : '')
-                + stat('Owed at end', money(nr.balance[m]), nr.balance[m] > 0.5 ? 'down' : '')
+            stats = stat('Owed at end', money(nr.balance[m]), nr.balance[m] > 0.5 ? 'down' : '')
                 + stat('Paid off', paidOff ? D.monthLabel(plan(), paidOff.month) : 'Not in this plan')
                 + stat('Paid', money(nr.totals.paid))
                 + stat('Interest', money(nr.totals.interest));

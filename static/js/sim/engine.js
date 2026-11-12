@@ -78,6 +78,9 @@
 // each year from when it starts. A link set to the cost pays exactly what falls
 // due that month: it is a fixed amount whose size and timing come from the
 // expense, so it overdraws, charges a card and falls short like any fixed one.
+// Setting a link to the cost is optional: whatever links feed an expense, the
+// plan is flagged `cost-uncovered` when what comes in over the plan is less
+// than the cost that falls due.
 //
 // Paying debts. A payment never exceeds what is owed: once a debt is paid off,
 // the money its links would have sent stays with the payer and falls through
@@ -736,7 +739,6 @@
             // it (or undated) is already owed on day one.
             s.originates = s.startIdx != null && s.startIdx >= 0;
             s.paidOffAt = -1;
-            s.scheduled = preset.kind === 'card' ? 0 : Plan.loanPayment(params);
             // What the loan is secured by (cards never are). Owned from day one
             // unless the loan, and so the purchase, comes later.
             if (preset.kind !== 'card' && params.asset > 0) {
@@ -870,12 +872,10 @@
         const nodes = Object.create(null);
         const warnings = [];
         const milestones = [];
-        // Expenses whose own cost some link pays.
-        const costPaid = new Set(linkStates.filter((L) => L.costOf).map((L) => L.to.id));
+        const startMonth = Plan.ymParse(r.start).m;
 
         for (const s of states) {
             const out = { role: s.role, kind: s.kind, outflow: s.outflow };
-            if (s.role === 'debt' && s.scheduled > 0) out.payment = s.scheduled;
             for (const key of ['balance', 'inflow', 'earnings', 'gross', 'pretax', 'produced',
                 'consumed', 'interest', 'paid', 'unplaced', 'charged', 'cashback', 'fees', 'matched',
                 'assetValue', 'assetGrowth']) {
@@ -913,8 +913,13 @@
                     warnings.push({ code: 'below-minimum', nodeId: s.id, amount: floor, month: Math.max(0, dip - 1) });
                 }
             }
-            if (s.role === 'expense' && s.params.cost > 0 && !costPaid.has(s.id)) {
-                warnings.push({ code: 'cost-unpaid', nodeId: s.id, amount: s.params.cost });
+            if (s.role === 'expense' && s.params.cost > 0) {
+                // However the money arrives (a link set to Cost, a fixed amount,
+                // a share), what comes in over the plan should cover the cost.
+                let due = 0;
+                for (let k = 0; k < months; k++) due += scheduled(s, s.params.cost, k, ((startMonth - 1 + k) % 12) + 1);
+                const missing = due - out.totals.in;
+                if (missing > 0.005) warnings.push({ code: 'cost-uncovered', nodeId: s.id, amount: missing });
             }
             if (s.role === 'account' && s.capped > 0.005) {
                 warnings.push({ code: 'cap', nodeId: s.id, amount: s.capped, month: s.cappedFirst });

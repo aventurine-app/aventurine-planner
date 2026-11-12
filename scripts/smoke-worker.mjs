@@ -79,7 +79,7 @@ try {
     // The free sandbox is for anyone, with its own copy of the scripts.
     r = await req('/demo');
     const demo = await r.text();
-    check('the free sandbox is public', r.status === 200 && demo.includes('<title>Aventurine Planner | Free Demo</title>'), `${r.status}`);
+    check('the free sandbox is public', r.status === 200 && demo.includes('<title>Aventurine - Free Demo</title>'), `${r.status}`);
     check('and the page is HTML', (r.headers.get('content-type') || '').startsWith('text/html'), r.headers.get('content-type'));
     const demoScripts = [...demo.matchAll(/<script src="(\/demo\/js\/[^"]+)"/g)].map((m) => m[1]);
     const served = await Promise.all(demoScripts.map((p) => req(p)));
@@ -100,7 +100,7 @@ try {
     check('the complimentary address signs in', owner.status === 200 && owner.cookie.startsWith('prism_session='), JSON.stringify(owner));
     r = await req('/', { cookie: owner.cookie });
     const page = await r.text();
-    check('and receives the app', r.status === 200 && page.includes('<title>Aventurine Planner</title>') && r.headers.get('cache-control') === 'private, no-cache', `${r.status} ${r.headers.get('cache-control')}`);
+    check('and receives the app', r.status === 200 && page.includes('<title>Aventurine</title>') && r.headers.get('cache-control') === 'private, no-cache', `${r.status} ${r.headers.get('cache-control')}`);
     r = await req('/static/js/app/store.js', { cookie: owner.cookie });
     check('and its code', r.status === 200 && (await r.text()).includes('window.Store'));
 

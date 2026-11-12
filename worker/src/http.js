@@ -17,6 +17,23 @@ const CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inl
     + "font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; "
     + "frame-ancestors 'none'";
 
+// How long a file named by its content hash (scripts/assemble.js, `?v=`) may
+// be kept: the URL changes with the file, so the copy can never go stale.
+const YEAR_SECONDS = 365 * 24 * 60 * 60;
+
+// What each `cache` kind means as a Cache-Control header.
+//   private     a browser may keep a copy but must ask before using it, so a
+//               lapsed subscription is noticed on the next load
+//   none        never kept (API answers, refusals)
+//   versioned   a content-addressed file: kept for a year without asking, in
+//               the browser only (the app's code) or any cache (public files)
+const CACHE_CONTROL = {
+    private: 'private, no-cache',
+    none: 'no-store',
+    'versioned-private': `private, max-age=${YEAR_SECONDS}, immutable`,
+    'versioned-public': `public, max-age=${YEAR_SECONDS}, immutable`,
+};
+
 /** Add the headers every response should have. `secure` adds HSTS (https only). */
 export function withSecurityHeaders(response, { secure, cache }) {
     const out = new Response(response.body, response);
@@ -26,11 +43,10 @@ export function withSecurityHeaders(response, { secure, cache }) {
     out.headers.set('X-Frame-Options', 'DENY');
     out.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
     out.headers.set('Cross-Origin-Opener-Policy', 'same-origin');
+    // Nothing here is for another site to embed or read.
+    out.headers.set('Cross-Origin-Resource-Policy', 'same-origin');
     if (secure) out.headers.set('Strict-Transport-Security', 'max-age=31536000');
-    // `private, no-cache`: a browser may keep a copy but must ask the worker
-    // before using it, so a lapsed subscription is noticed on the next load.
-    if (cache === 'private') out.headers.set('Cache-Control', 'private, no-cache');
-    else if (cache === 'none') out.headers.set('Cache-Control', 'no-store');
+    if (CACHE_CONTROL[cache]) out.headers.set('Cache-Control', CACHE_CONTROL[cache]);
     return out;
 }
 

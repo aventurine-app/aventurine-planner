@@ -333,7 +333,7 @@ test('a link set to an expense\'s cost pays it, rising by its inflation each yea
     close(r.links[l.id].flow[11], 1000);
     close(r.links[l.id].flow[12], 1100);
     close(r.totals.spent, 12 * 1000 + 12 * 1100);
-    assert.ok(!r.warnings.some((w) => w.code === 'cost-unpaid'));
+    assert.ok(!r.warnings.some((w) => w.code === 'cost-uncovered'));
 });
 
 test('a cost follows the expense\'s schedule: a yearly lump in its month, a one-off on its date', () => {
@@ -375,18 +375,33 @@ test('a card can be charged an expense\'s cost', () => {
     close(last(r.nodes[card.id].balance), 12 * 150);
 });
 
-test('an expense with a cost no link pays is a notice; one with no cost set pays nothing', () => {
+test('an expense whose inflow does not cover its cost is a notice, however the money is linked', () => {
     const plan = mkPlan('2026-01', 1);
     const pay = node(plan, 'paycheck', { amount: 1000, per: 'month' });
-    const fun = node(plan, 'expense', { cost: 300, per: 'month' });
+    const short = node(plan, 'expense', { cost: 300, per: 'month' });
+    const fixed = node(plan, 'expense', { cost: 300, per: 'month' });
+    const share = node(plan, 'expense', { cost: 300, per: 'month' });
     const blank = node(plan, 'expense');
-    link(plan, pay, fun, { mode: 'percent', value: 30 });
+    link(plan, pay, short, { mode: 'percent', value: 20 });
+    link(plan, pay, fixed, { mode: 'fixed', value: 300 });
+    link(plan, pay, share, { mode: 'percent', value: 30 });
     const none = link(plan, pay, blank, { mode: 'cost' });
     const r = run(plan);
-    assert.ok(r.warnings.some((w) => w.code === 'cost-unpaid' && w.nodeId === fun.id));
-    assert.ok(!r.warnings.some((w) => w.code === 'cost-unpaid' && w.nodeId === blank.id));
+    const w = (n) => r.warnings.find((x) => x.code === 'cost-uncovered' && x.nodeId === n.id);
+    close(w(short).amount, 12 * 100);
+    assert.ok(!w(fixed));
+    assert.ok(!w(share));
+    assert.ok(!w(blank));
     assert.equal(r.links[none.id].total, 0);
-    assert.ok(!r.warnings.some((w) => w.code === 'short' && w.linkId === none.id));
+    assert.ok(!r.warnings.some((x) => x.code === 'short' && x.linkId === none.id));
+});
+
+test('an expense with a cost and no inflow at all does not cover it', () => {
+    const plan = mkPlan('2026-01', 1);
+    const rent = node(plan, 'expense', { cost: 1000, per: 'month' });
+    const r = run(plan);
+    const w = r.warnings.find((x) => x.code === 'cost-uncovered' && x.nodeId === rent.id);
+    close(w.amount, 12000);
 });
 
 test('a locked account moves nothing until it unlocks', () => {
@@ -447,17 +462,16 @@ test('a paid-off debt passes later payments on: the snowball', () => {
     assert.deepEqual(paidOff, [[small.id, 1], [big.id, 11]]);
 });
 
-test('a loan with a term is paid its scheduled payment and clears on time', () => {
+test('a loan is paid what its link is set to, and nothing past what is owed', () => {
     const plan = mkPlan('2026-01', 3);
     const pay = node(plan, 'paycheck', { amount: 2000, per: 'month' });
-    const loan = node(plan, 'loan', { balance: 20000, rate: 7, term: 3 });
+    const loan = node(plan, 'loan', { balance: 20000, rate: 7 });
     const savings = node(plan, 'bank-account');
-    const due = Plan.loanPayment({ balance: 20000, rate: 7, term: 3 });
-    link(plan, pay, loan, { mode: 'fixed', value: due });
+    link(plan, pay, loan, { mode: 'fixed', value: 1000 });
     link(plan, pay, savings, { mode: 'rest' });
     const r = run(plan);
-    close(r.links.l_0.flow[0], due);
-    close(r.nodes[loan.id].payment, due);
+    close(r.links.l_0.flow[0], 1000);
+    assert.ok(r.links.l_0.flow[35] === 0, 'the payment stops once the loan is cleared');
     assert.ok(Math.abs(last(r.nodes[loan.id].balance)) < 1e-4);
     assert.ok(!codes(r).includes('short'));
 });
@@ -795,7 +809,7 @@ test('a car loses value at a negative rate and stays after the loan is paid off'
     const plan = mkPlan('2026-01', 3);
     const pay = node(plan, 'paycheck', { amount: 5000, per: 'month' });
     const savings = node(plan, 'bank-account', { balance: 0, rate: 0 });
-    const carLoan = node(plan, 'loan', { balance: 12000, rate: 0, term: 1, asset: 30000, assetRate: -15 });
+    const carLoan = node(plan, 'loan', { balance: 12000, rate: 0, asset: 30000, assetRate: -15 });
     link(plan, pay, carLoan, { mode: 'fixed', value: 1000 });
     link(plan, pay, savings);
     const r = run(plan);

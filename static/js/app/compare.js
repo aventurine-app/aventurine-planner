@@ -42,8 +42,7 @@
     // wears the success green instead.
     const MEDALS = [null, 'silver', 'bronze'];
 
-    // The lengths on offer: the same as Analyze's (LENGTHS in outlook.js).
-    const LENGTHS = [1, 3, 5, 10, 20, 30, 40, 50];
+    const LENGTHS = Store.LENGTHS;
     const PREFS = { years: 'compare-years', pair: 'compare-pair' };
     const yearsWord = (y) => `${y} year${y === 1 ? '' : 's'}`;
 

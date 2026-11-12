@@ -120,6 +120,33 @@ test('a subscriber gets the app, its code, and must revalidate each time', async
     assert.equal((await site.call('/static/js/app/missing.js', { cookie })).status, 404);
 });
 
+test('a file named by its content may be kept for a year; the page, a miss and a plain name still revalidate', async (t) => {
+    const site = createSite();
+    t.after(site.restore);
+    const cookie = await member(site);
+    const YEAR = 'max-age=31536000, immutable';
+
+    // The app's code: kept, in the browser only, and still only for a subscriber.
+    const code = await site.call('/static/js/app/store.js?v=0123456789', { cookie });
+    assert.equal(code.status, 200);
+    assert.equal(await code.text(), APP_CODE);
+    assert.equal(code.headers.get('Cache-Control'), `private, ${YEAR}`);
+    const out = await site.call('/static/js/app/store.js?v=0123456789');
+    assert.equal(out.status, 401);
+    assert.equal(out.headers.get('Cache-Control'), 'no-store');
+
+    // A public file: kept by any cache.
+    assert.equal((await site.call('/static/css/style.css?v=0123456789')).headers.get('Cache-Control'), `public, ${YEAR}`);
+
+    // Not kept: the page itself, a file that is not there, and a version that is not a hash.
+    assert.equal((await site.call('/?v=0123456789', { cookie })).headers.get('Cache-Control'), 'private, no-cache');
+    const missing = await site.call('/static/js/app/missing.js?v=0123456789', { cookie });
+    assert.equal(missing.status, 404);
+    assert.ok(!(missing.headers.get('Cache-Control') || '').includes('immutable'));
+    assert.equal((await site.call('/static/js/app/store.js?v=latest', { cookie })).headers.get('Cache-Control'), 'private, no-cache');
+    assert.equal((await site.call('/static/css/style.css?v=latest')).headers.get('Cache-Control'), null);
+});
+
 test('only active, trialing and past_due subscriptions get in', async () => {
     for (const [status, allowed] of [['active', true], ['trialing', true], ['past_due', true], ['paused', false], ['canceled', false], ['mystery', false]]) {
         const site = createSite();
@@ -250,6 +277,7 @@ test('every response carries the security headers', async (t) => {
         assert.equal(r.headers.get('X-Content-Type-Options'), 'nosniff');
         assert.equal(r.headers.get('X-Frame-Options'), 'DENY');
         assert.equal(r.headers.get('Referrer-Policy'), 'no-referrer');
+        assert.equal(r.headers.get('Cross-Origin-Resource-Policy'), 'same-origin');
         assert.match(r.headers.get('Strict-Transport-Security'), /max-age=31536000/);
     }
     assert.equal((await site.call('/api/me')).headers.get('Cache-Control'), 'no-store');

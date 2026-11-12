@@ -244,9 +244,6 @@ async function main(url) {
     await js('Settings.open("storage")');
     check('the Storage tab says whether the browser will keep the plans',
         await until(js, `document.querySelector('[data-persist-desc]').textContent !== 'Checking…'`));
-    await js('Settings.open("about"); true');
-    check('About shows the build version',
-        await until(js, `document.querySelector('[data-app-version]').textContent === ${JSON.stringify(require('./assemble').readVersion())}`));
     await js('UI.closeModal && UI.closeModal(document.getElementById("prefs"))');
 
     // A second tab must wait for the first.

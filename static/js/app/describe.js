@@ -111,9 +111,12 @@
      *  '20%'). `amount` is one month's flow, or with `perMonth` the plan's
      *  monthly average; over the whole plan a fixed link shows its own amount
      *  and timing instead ('$1,800/mo', '$5K/yr'). With `perYear`, `amount`
-     *  is a year's (a link sent yearly, in a month): '$24K/yr'. */
-    function linkFigure(link, from, amount, perMonth, perYear = false) {
-        if (link.mode === 'fixed' && perMonth) return { amount: linkShort(link, from), rule: null };
+     *  is a year's (a link sent yearly, in a month): '$24K/yr'. With
+     *  `measured`, a fixed link shows the `amount` it moved, not what it was
+     *  set to: a payment to a debt stops when the debt is paid off and never
+     *  exceeds what is owed. */
+    function linkFigure(link, from, amount, perMonth, perYear = false, measured = false) {
+        if (link.mode === 'fixed' && perMonth && !measured) return { amount: linkShort(link, from), rule: null };
         return { amount: `${compact(amount)}${perMonth ? '/mo' : perYear ? '/yr' : ''}`, rule: linkRule(link, from) };
     }
 
@@ -311,10 +314,8 @@
                 const backTo = p.kind === 'card' && Store.node(node.params.cashBackTo);
                 const back = p.kind === 'card' && node.params.cashBack
                     ? `${Fmt.pct(node.params.cashBack)} back${backTo ? ` to ${backTo.name}` : ''}` : '';
-                const payment = p.kind === 'card' ? 0 : P.loanPayment(node.params);
-                const due = payment > 0.005 ? `${compact(payment)}/mo` : '';
                 const asset = p.kind !== 'card' && node.params.asset > 0 ? `${compact(node.params.asset)} asset` : '';
-                return [apr, back, due, asset].filter(Boolean).join(' · ');
+                return [apr, back, asset].filter(Boolean).join(' · ');
             }
             default:
                 return '';
@@ -357,9 +358,9 @@
     };
 
     // How loud a warning is. A card's high utilization and an expense's cost
-    // that no link pays are notices (not a problem yet) and money parked in
+    // that its inflow does not cover are notices (not a problem yet) and money parked in
     // Unassigned is information; every other warning is a warning.
-    const WARNING_LEVEL = { unassigned: 'info', utilization: 'notice', 'cost-unpaid': 'notice', 'stop-no-age': 'notice', 'stop-no-retire-age': 'notice', 'stopped-before': 'notice', 'no-start': 'notice', 'no-stop': 'notice' };
+    const WARNING_LEVEL = { unassigned: 'info', utilization: 'notice', 'cost-uncovered': 'notice', 'stop-no-age': 'notice', 'stop-no-retire-age': 'notice', 'stopped-before': 'notice', 'no-start': 'notice', 'no-stop': 'notice' };
 
     /** 'warn', 'notice' or 'info', without writing the warning's sentence. */
     function warningLevel(w) {
@@ -394,8 +395,8 @@
                 return { select: node, text: `${Fmt.money(w.amount, { compact: true })} from ${name} has no link and lands in Unassigned.` };
             case 'overdrawn':
                 return { select: node, text: `${name} goes below zero in ${m(w.month)}.` };
-            case 'cost-unpaid':
-                return { select: node, text: `${name} has a cost, but no link pays it. Set a link into it to Cost.` };
+            case 'cost-uncovered':
+                return { select: node, text: `Inflow to ${name} does not cover the cost.` };
             case 'below-minimum':
                 return { select: node, text: `${name} goes below the ${Fmt.money(w.amount, { compact: true })} it keeps in ${m(w.month)}.` };
             case 'cap':

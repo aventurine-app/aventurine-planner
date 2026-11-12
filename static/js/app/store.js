@@ -42,6 +42,9 @@
     // cannot contain a colon, so it never meets one.
     const GOALS = ':goals';
     const YEARS_KEY = 'plan-years';
+    // The lengths on offer wherever a plan's run is chosen: the scrubber's
+    // chips, Analyze's, and Compare's Over.
+    const LENGTHS = Object.freeze([1, 3, 5, 10, 20, 30, 40, 50]);
 
     /** The saved length, or null when none is saved (or it is out of range). */
     function savedYears() {
@@ -876,6 +879,6 @@
         renamePlan, deletePlan, reorderTabs, importPlan, exportPlan, exportAll, planName, getPlan,
         node, link, previewPreset, setPreviewIcon, addNode, duplicateNode, copyNodes, pasteNodes, removeNode, removeNodes,
         connect, reconnect, removeLink, goal, editGoals, addGoal, nextGoalColor, removeGoal, moveGoal, setWorkspace,
-        applyRemote, setSync, setYears, atLength,
+        applyRemote, setSync, setYears, atLength, LENGTHS,
     };
 }());

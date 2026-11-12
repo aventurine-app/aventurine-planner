@@ -56,6 +56,26 @@ test('the answer is the same for a customer and a stranger, and a stranger is se
     assert.equal(site.db.sqlite.prepare('SELECT COUNT(*) AS n FROM login_tokens').get().n, 1);
 });
 
+test('the reply does not wait for the link to be made or sent', async (t) => {
+    // A customer's request must cost the same as a stranger's, so the token
+    // write and the email are deferred past the reply (ctx.waitUntil).
+    const site = createSite();
+    t.after(site.restore);
+    const email = await customer(site);
+    const deferred = [];
+    const ctx = { waitUntil: (p) => { deferred.push(p); } };
+    const worker = createWorker({ now: () => site.clock.now });
+    const response = await worker.fetch(new Request(`${ORIGIN}/api/auth/request`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Origin: ORIGIN }, body: JSON.stringify({ email }),
+    }), site.env, ctx);
+    assert.equal(response.status, 202);
+    assert.equal(site.db.sqlite.prepare('SELECT COUNT(*) AS n FROM login_tokens').get().n, 0, 'nothing written before the reply');
+    assert.equal(site.sent.emails.length, 0);
+    await Promise.all(deferred);
+    assert.equal(site.db.sqlite.prepare('SELECT COUNT(*) AS n FROM login_tokens').get().n, 1);
+    assert.equal(site.sent.emails.length, 1);
+});
+
 test('a link goes only to a subscription that grants access', async (t) => {
     const site = createSite();
     t.after(site.restore);

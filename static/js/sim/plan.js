@@ -314,17 +314,6 @@
         return roleOf(from) === 'source' && !!to && takesPretax(Catalog.preset(to.type));
     }
 
-    /** A loan's monthly payment: the level payment that clears `balance` over
-     *  its years left at its APR. Without a term there is no schedule, so
-     *  nothing. A card has no schedule either. */
-    function loanPayment(params) {
-        const principal = params.balance || 0;
-        const n = params.term ? Math.max(1, Math.round(params.term * 12)) : 0;
-        if (!n) return 0;
-        const r = (params.rate || 0) / 1200;
-        return r > 0 ? principal * r / (1 - Math.pow(1 + r, -n)) : principal / n;
-    }
-
     function roleOf(node) {
         const p = node && Catalog.preset(node.type);
         return p ? p.role : null;
@@ -613,7 +602,7 @@
             case 'charges':
                 return Object.assign(rule, priceRule(plan, to, tp.inLink || { when: 'monthly', value: 100 }));
             case 'balance': {
-                if (tp.role === 'debt') return Object.assign(rule, paymentRule(to));
+                if (tp.role === 'debt') return Object.assign(rule, paymentRule());
                 if (tp.inLink) return Object.assign(rule, priceRule(plan, to, tp.inLink));
                 return Object.assign(rule, { mode: 'fixed', value: 500 });
             }
@@ -636,11 +625,9 @@
             date: buy.relDate != null ? ymAdd(plan.settings.start, buy.relDate) : null };
     }
 
-    /** Paying a debt starts at what it asks each month: a loan's scheduled
-     *  payment, else a round figure to edit. */
-    function paymentRule(debt) {
-        const ask = Math.ceil(loanPayment(debt.params) * 100) / 100;
-        return { mode: 'fixed', value: ask > 0 ? ask : 500, when: 'monthly' };
+    /** Paying a debt starts at a round monthly figure to edit. */
+    function paymentRule() {
+        return { mode: 'fixed', value: 500, when: 'monthly' };
     }
 
     function startingRule(plan, from, to) {
@@ -662,10 +649,10 @@
             }
         }
 
-        // Paying a debt starts at what it asks each month.
+        // Paying a debt starts at a round monthly figure.
         if (tp.role === 'debt' && fp.role !== 'debt') {
             const basis = fp.role === 'account' ? 'balance' : 'inflow';
-            return Object.assign(rule, { basis }, paymentRule(to));
+            return Object.assign(rule, { basis }, paymentRule());
         }
         // Pay into a 401(k) is usually a slice of it.
         if (tp.employerMatch && fp.role === 'source') {
@@ -1167,8 +1154,18 @@
         // "the payment due". A saved fixed deposit link becomes the same fixed
         // amount from the balance (unless the pair has one already); other
         // deposit and earnings links have no equivalent and are dropped. A due
-        // link becomes the fixed payment it was making: a loan's scheduled
-        // payment, or a card's balance plus its monthly purchases.
+        // link becomes the fixed payment it was making: a loan's level payment
+        // over the years it had left (saved plans only; loans no longer have
+        // that setting), or a card's balance plus its monthly purchases.
+        const levelPayment = (id) => {
+            const n = raw.nodes.find((o) => isObj(o) && o.id === id);
+            const q = (n && isObj(n.params) ? n.params : {});
+            const principal = Number(q.balance) || 0;
+            const months = q.term ? Math.max(1, Math.round(Number(q.term) * 12)) : 0;
+            if (!months) return 0;
+            const r = (Number(q.rate) || 0) / 1200;
+            return r > 0 ? principal * r / (1 - Math.pow(1 + r, -months)) : principal / months;
+        };
         const settleRule = (l) => {
             const from = nodesById.get(l.from);
             const to = nodesById.get(l.to);
@@ -1184,7 +1181,7 @@
                     ? (to.params.balance || 0) + raw.links
                         .filter((o) => isObj(o) && o.from === to.id && o.basis === 'charges' && o.mode === 'fixed' && o.when === 'monthly')
                         .reduce((sum, o) => sum + (Number(o.value) || 0), 0)
-                    : loanPayment(to.params);
+                    : levelPayment(to.id);
                 out = { ...out, mode: 'fixed', value: payment, when: 'monthly' };
             }
             return out;
@@ -1278,7 +1275,7 @@
     return {
         PLAN_VERSION, LIMITS, GEOM, MONTHS, RULES, PlanError, REMOVED_TYPES, reconnect,
         ymParse, ymFormat, ymNow, ymAdd, ymDiff, ymLabel,
-        newId, roleOf, basesFor, modesFor, timingsFor, costPayer, portTargets, targetRoles, basesBetween, changeBasis, loanPayment, isPretax,
+        newId, roleOf, basesFor, modesFor, timingsFor, costPayer, portTargets, targetRoles, basesBetween, changeBasis, isPretax,
         createPlan, createNode, iconOf, ageAt, ageMonth, stopAge, startAge, incomeEnd, canTurn, makeTwoWay, BACK_MODES, BACK_WHENS, START_KINDS, startAgeMonth, RETIRED_TYPES, canConnect, createLink, fitRule,
         GOAL_METRICS, GOAL_OPS, GOAL_UNITS, GOAL_DUES, GOAL_VALUE, GOAL_AGE, GOAL_COLORS, createGoal, goalDate,
         validateGoals, legacyGoals, mergeGoals, validatePlan, cloneWithNewIds,

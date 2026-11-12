@@ -109,7 +109,6 @@
         rate:       { type: 'percent',   label: 'Interest',         min: -100, max: 1000, suffix: '/yr' },
         lockUntil:  { type: 'yearmonth', label: 'Locked until',     optional: true },
         capYearly:  { type: 'money',     label: 'Yearly limit',     min: 0,    max: 1e10, optional: true },
-        term:       { type: 'number',    label: 'Years left',       min: 0.1,  max: 50,   optional: true, suffix: 'yrs' },
         cashBack:   { type: 'percent',   label: 'Cash back',        min: 0,    max: 100 },
         cashBackTo: { type: 'account',   label: 'Cash back to',     optional: true },
         annualFee:  { type: 'money',     label: 'Annual fee',       min: 0,    max: 1e10, optional: true },
@@ -131,7 +130,7 @@
         source:   ['amount', 'per', 'payMonth', 'growth', 'tax', 'start', 'stopBy', 'end', 'endAge'],
         account:  ['balance', 'minBalance', 'rate', 'lockUntil', 'capYearly', 'match', 'matchLimit'],
         expense:  ['cost', 'per', 'payMonth', 'growth', 'start', 'end'],
-        debt:     ['balance', 'rate', 'term', 'start', 'asset', 'assetRate', 'cashBack', 'cashBackTo', 'annualFee', 'limit'],
+        debt:     ['balance', 'rate', 'start', 'asset', 'assetRate', 'cashBack', 'cashBackTo', 'annualFee', 'limit'],
         modifier: [],
     };
 
@@ -139,7 +138,7 @@
         source:   { amount: 0, per: 'month', payMonth: 0, growth: 0, tax: 0, start: null, stopBy: 'never', end: null, endAge: null },
         account:  { balance: 0, minBalance: null, rate: 0, lockUntil: null, capYearly: null, match: 0, matchLimit: null },
         expense:  { cost: null, per: 'month', payMonth: 0, growth: 0, start: null, end: null },
-        debt:     { balance: 0, rate: 0, term: null, start: null, asset: null, assetRate: 0, cashBack: 0, cashBackTo: null, annualFee: null, limit: null },
+        debt:     { balance: 0, rate: 0, start: null, asset: null, assetRate: 0, cashBack: 0, cashBackTo: null, annualFee: null, limit: null },
         modifier: {},
     };
 
@@ -201,11 +200,10 @@
     //             in (see engine.js, employer match)
     // inLink      the rule a new link INTO this module starts with
     // keywords    extra search terms
-    // Installment loans are repaid over a term, so their payment is worked out
-    // from it (plan.js, loanPayment) rather than typed in. A loan's Asset value
-    // is what it is secured by (a mortgage's home, a car loan's car): worth that
-    // today, or when it is bought if the loan starts later in the plan.
-    const DEBT_FIELDS = ['balance', 'rate', 'term', 'start', 'asset', 'assetRate'];
+    // A loan's Asset value is what it is secured by (a mortgage's home, a car
+    // loan's car): worth that today, or when it is bought if the loan starts
+    // later in the plan.
+    const DEBT_FIELDS = ['balance', 'rate', 'start', 'asset', 'assetRate'];
     // An income may stop: never, after a month (its Last paid, inclusive), or
     // the month its plan's person reaches an age, its own or the plan's
     // retirement age (plan.js, incomeEnd).
@@ -282,7 +280,7 @@
             keywords: 'wedding renovation remodel vacation trip down payment car purchase furniture appliance funeral emergency repair medical bill one-off big purchase' }),
 
         // Debt. A card is its own thing (purchases, cash back). All
-        // other debt is a balance owed at a rate, repaid over a term.
+        // other debt is a balance owed at a rate, repaid by the links into it.
         P('debt', 'debt', 'credit-card', 'Credit card', 'credit-card', {
             kind: 'card',
             fields: ['balance', 'rate', 'limit', 'cashBack', 'cashBackTo', 'annualFee'],

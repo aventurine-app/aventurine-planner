@@ -41,7 +41,7 @@
     if (!TABLES.some(([v]) => v === tableView)) tableView = 'year';
     // The By year table's sort: a column and 'asc' or 'desc', or none (plan order).
     let yearSort = { key: null, dir: null };
-    const LENGTHS = [1, 3, 5, 10, 20, 30, 40, 50];
+    const LENGTHS = Store.LENGTHS;
     // Net worth bands: at most this many per family before the rest fold
     // into "Other". Each band wears its module's role colour (style.css).
     const ACCOUNT_BANDS = 6;

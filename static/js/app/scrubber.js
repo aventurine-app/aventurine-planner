@@ -20,8 +20,7 @@
     const root = document.getElementById('scrubber');
     if (!root) return;
 
-    // The lengths on offer: the same as Analyze's (LENGTHS in outlook.js).
-    const LENGTHS = [1, 3, 5, 10, 20, 30, 40, 50];
+    const LENGTHS = Store.LENGTHS;
 
     root.innerHTML = `
         <div class="scrub-lane">

@@ -16,7 +16,7 @@
 // it does not restart the 60 days.
 
 (function () {
-    const { createVaultApi, openVaultKeys, VaultCrypto, readVault, Exports, PlanFiles, fileDialogs } = window.PrismWeb;
+    const { createVaultApi, openVaultKeys, VaultCrypto, readVault, Exports, PlanFiles, fileDialogs, AccountApi } = window.PrismWeb;
 
     const note = document.getElementById('export-note');
     const unlockForm = document.getElementById('export-unlock');
@@ -186,13 +186,8 @@
     reportBtn.addEventListener('click', () => printReport(contents.plans, 'Aventurine Planner report'));
 
     signout.addEventListener('click', async () => {
-        try {
-            await fetch('/api/auth/logout', {
-                method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: '{}',
-            });
-        } finally {
-            location.replace('/auth/login');
-        }
+        await AccountApi.logout();
+        location.replace('/auth/login');
     });
 
     start().catch((e) => {

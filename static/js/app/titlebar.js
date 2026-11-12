@@ -28,9 +28,10 @@
     }
 
     // ── Signed-in user ─────────────────────────────────────────────────────
-    // The email comes from /api/me. Where there is no server (local dev) or the
-    // session is gone, the spot says so. Clicking opens Preferences → Account.
-    // (In the free sandbox it reads "Free demo" and opens its explainer.)
+    // The email comes from the account calls (web/account-api.js), which ask
+    // the server once for the page. Where there is no server (local dev) or
+    // the session is gone, the spot says so. Clicking opens Preferences →
+    // Account. (In the free sandbox it reads "Free demo" and opens its explainer.)
     if (userEl) {
         userEl.innerHTML = `${iconSvg('user-circle')}<span class="titlebar-user-name"></span>`;
         const nameEl = userEl.querySelector('.titlebar-user-name');
@@ -47,10 +48,7 @@
             userEl.setAttribute('aria-label', 'About the free demo');
         } else {
             show('');
-            fetch('/api/me', { credentials: 'same-origin' })
-                .then((r) => (r.ok ? r.json() : null))
-                .then((me) => show(me && me.email))
-                .catch(() => {});
+            PrismWeb.AccountApi.me().then((r) => show(r.status === 200 ? r.body.email : ''));
         }
     }
 

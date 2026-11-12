@@ -36,12 +36,12 @@
         const salary = at(0, ROW * 1.5, 'salary', 'Salary', { amount: 65000, per: 'year', growth: 3, tax: 22 });
         const rent = at(1, 0, 'expense', 'Rent', {}, 'house');
         const groceries = at(1, ROW, 'expense', 'Groceries', {}, 'basket');
-        const carLoan = at(1, ROW * 2, 'loan', 'Car loan', { balance: 18000, rate: 6.5, term: 5 }, 'car-profile');
+        const carLoan = at(1, ROW * 2, 'loan', 'Car loan', { balance: 18000, rate: 6.5 }, 'car-profile');
         const savings = at(1, ROW * 3, 'bank-account', 'Savings', { balance: 5000, rate: 4 });
 
         link(salary, rent, { mode: 'fixed', value: 1750 });
         link(salary, groceries, { mode: 'fixed', value: 600 });
-        link(salary, carLoan);      // starts at the loan's scheduled payment
+        link(salary, carLoan, { mode: 'fixed', value: 352 });
         link(salary, savings, { mode: 'rest', value: 0 });
 
         return plan;

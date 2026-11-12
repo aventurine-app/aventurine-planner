@@ -209,6 +209,16 @@ website, and deploy again. Buy once with a real card and refund it.
 - **Sessions** last 30 days and are checked against the database on every
   request, so a cancellation or `logout` takes effect at once. The app that is
   already open in a tab keeps running until it is reloaded, but stops syncing.
+- **Caching.** The page (`/`) and every API answer are never served from a
+  cache. A script, stylesheet or icon is named with the hash of its content
+  (`?v=…`, from the build), and such an address is sent with a one-year
+  `immutable` Cache-Control: `private` for the app's code (the browser's own
+  copy, still only sent to a subscriber the first time), `public` for the
+  sign-in pages' files. A changed file has a new address, so nothing goes stale.
+- **The sign-in reply costs the same for everyone.** Whether or not the
+  address is a customer, the request does the same two reads and replies;
+  making the link (a write) and emailing it happen after the reply
+  (`ctx.waitUntil`), so timing cannot tell a customer from a stranger.
 - **Deploying the vault or privacy requests** needs their migrations (0002 to
   0004) applied first:
   `npx wrangler d1 migrations apply aventurine-prism --remote --config worker/wrangler.toml`.

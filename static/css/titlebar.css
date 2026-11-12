@@ -46,6 +46,12 @@
     width: 24px;
     height: 24px;
 }
+/* The name and its Beta mark, which sits at the name's top right corner. */
+.titlebar-title {
+    display: inline-flex;
+    align-items: flex-start;
+    gap: var(--space-4);
+}
 /* The collapsed rail is too narrow for the name. */
 .titlebar-name {
     color: #fff;
@@ -55,7 +61,20 @@
     font-weight: var(--font-weight-strong);
     transition: opacity var(--motion-duration-mid);
 }
-:root.has-rail .titlebar-name { opacity: 0; }
+:root.has-rail .titlebar-name,
+:root.has-rail .titlebar-beta { opacity: 0; }
+
+/* Supertext on the name: small, the bar's strong ink, a little tracked. */
+.titlebar-beta {
+    margin-top: 1px;
+    color: var(--titlebar-ink-strong);
+    font-size: 11px;
+    line-height: 1;
+    font-weight: var(--font-weight-strong);
+    letter-spacing: 0.04em;
+    vertical-align: baseline;
+    transition: opacity var(--motion-duration-mid);
+}
 
 .titlebar-drag {
     flex: 1;
@@ -114,5 +133,5 @@
 .titlebar-user:focus-visible { outline: 4px solid rgba(255, 255, 255, 0.4); outline-offset: -2px; }
 
 @media (prefers-reduced-motion: reduce) {
-    .titlebar-lead, .titlebar-name, .titlebar-user { transition: none; }
+    .titlebar-lead, .titlebar-name, .titlebar-beta, .titlebar-user { transition: none; }
 }

@@ -21,3 +21,6 @@ CLAUDE.md
 .DS_Store
 .vscode/
 .idea/
+
+# Throwaway screenshot script and output (untracked, like .scratch/)
+.scratch-shot/

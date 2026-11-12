@@ -62,10 +62,9 @@ export default [
     {
         ignores: [
             'dist/**',
-            // Leftover local build output from the retired desktop app (untracked).
-            'electron/**',
             '**/node_modules/**',
             '.scratch/**',
+            '.scratch-shot/**',
             'static/js/core/icon-data.js',
         ],
     },

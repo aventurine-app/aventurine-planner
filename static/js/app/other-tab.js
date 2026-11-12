@@ -9,13 +9,10 @@
 (function () {
     const root = document.getElementById('lockscreen');
     if (!root) return;
-    const tabStrip = document.getElementById('tabs');
 
     /** Show the waiting screen. `onReady` starts the app once this tab may load the plans. */
     function show(onReady) {
         root.hidden = false;
-        // Nothing in the tab strip works until the plans are loaded.
-        if (tabStrip) tabStrip.hidden = true;
         root.innerHTML = `
             <div class="lock-card" role="status" aria-live="polite">
                 <span class="role-tile role-tile--lg role-tile--accent">${iconSvg('copy')}</span>
@@ -25,7 +22,6 @@
         api('GET', '/api/ready').then((r) => {
             if (r.ok) {
                 root.hidden = true;
-                if (tabStrip) tabStrip.hidden = false;
                 onReady();
                 return;
             }

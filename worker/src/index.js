@@ -45,6 +45,9 @@ const PUBLIC_PREFIXES = ['/static/css/', '/static/fonts/', '/static/icons/', '/s
 const PUBLIC_FILES = new Set(['/static/js/shell/theme-init.js']);
 const AUTH_PAGES = new Set(['login', 'confirm', 'inactive', 'privacy']);
 const DEMO_PAGES = new Set(['/demo', '/demo/']);
+// A file named by its content (scripts/assemble.js appends `?v=<hash>`) may be
+// kept by the browser for a year: a change to the file changes its address.
+const ASSET_VERSION = /^[0-9a-f]{8,64}$/;
 
 export const isPublicAsset = (path) => PUBLIC_FILES.has(path) || PUBLIC_PREFIXES.some((p) => path.startsWith(p));
 
@@ -165,10 +168,14 @@ export function createWorker({ now = Date.now } = {}) {
     /** Fetch a file from the built app (the `dist/` folder bound as ASSETS). */
     const asset = (request, env, path) => env.ASSETS.fetch(new Request(new URL(path, request.url), request));
 
-    async function pages(request, env, ctx, config, path) {
+    async function pages(request, env, ctx, config, url) {
+        const path = url.pathname;
         if (request.method !== 'GET' && request.method !== 'HEAD') {
             return { response: json({ ok: false, error: 'method_not_allowed' }, 405, { Allow: 'GET, HEAD' }), cache: 'none' };
         }
+        const versioned = ASSET_VERSION.test(url.searchParams.get('v') || '');
+        /** The cache kind for a file: `kind` when found at a versioned address, else `otherwise`. */
+        const kept = (response, kind, otherwise) => (versioned && response.status === 200 ? kind : otherwise);
 
         const authPage = /^\/auth\/([a-z]+)$/.exec(path);
         if (authPage) {
@@ -178,7 +185,10 @@ export function createWorker({ now = Date.now } = {}) {
         }
         if (DEMO_PAGES.has(path)) return { response: await asset(request, env, '/demo/index.html') };
         if (path === '/export') return { response: await asset(request, env, '/export/index.html'), cache: 'none' };
-        if (isPublicAsset(path)) return { response: await asset(request, env, path) };
+        if (isPublicAsset(path)) {
+            const response = await asset(request, env, path);
+            return { response, cache: kept(response, 'versioned-public', undefined) };
+        }
 
         // Everything else is the app.
         const deps = dependencies(request, env, ctx, config);
@@ -193,7 +203,9 @@ export function createWorker({ now = Date.now } = {}) {
                 cache: 'none',
             };
         }
-        return { response: await asset(request, env, wantsPage ? '/index.html' : path), cache: 'private' };
+        if (wantsPage) return { response: await asset(request, env, '/index.html'), cache: 'private' };
+        const response = await asset(request, env, path);
+        return { response, cache: kept(response, 'versioned-private', 'private') };
     }
 
     // ── Entry points ───────────────────────────────────────────────────────
@@ -207,7 +219,7 @@ export function createWorker({ now = Date.now } = {}) {
         if (url.pathname.startsWith('/api/')) {
             return { response: await api(request, env, ctx, config, url.pathname), cache: 'none', config };
         }
-        return { ...(await pages(request, env, ctx, config, url.pathname)), config };
+        return { ...(await pages(request, env, ctx, config, url)), config };
     }
 
     async function fetchHandler(request, env, ctx) {

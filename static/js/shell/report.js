@@ -24,7 +24,7 @@
 //   Report.print({ entries: [{ plan, results }], goals, title })
 //
 // Needs: escapeHtml, Fmt, CitrinePlan, CitrineEngine, CitrineGoals, CitrineSummary, Describe.
-// Used by the app (shell/exports-ui.js) and the export page for lapsed
+// Used by the app (app/export-menu.js) and the export page for lapsed
 // subscribers (shell/export-page.js).
 
 (function () {

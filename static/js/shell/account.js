@@ -7,12 +7,14 @@
 // (the dialog and every vault request are shell/vault-gate.js's). Signing out
 // with sync on sends what is unsent, then clears the plans from this browser.
 //
-// Where there is no server (the local dev server), /api/me does not answer and
-// the tab says so instead of failing.
+// Every call to the server goes through web/account-api.js. Where there is
+// no server (the local dev server), it does not answer and the tab says so
+// instead of failing.
 
 (function () {
     const panel = document.querySelector('[data-panel="account"]');
     if (!panel) return;
+    const { AccountApi } = window.PrismWeb;
     const emailEl = panel.querySelector('[data-account-email]');
     const statusEl = panel.querySelector('[data-account-status]');
     const billingBtn = panel.querySelector('[data-account-billing]');
@@ -83,46 +85,30 @@
         showError('');
         billingBtn.hidden = true;
         signoutRow.hidden = true;
-        let response;
-        try {
-            response = await fetch('/api/me', { credentials: 'same-origin' });
-        } catch {
-            response = null;
-        }
-        if (!response || !response.ok) {
+        // Asked afresh: the subscription may have changed in billing meanwhile.
+        const r = await AccountApi.me({ fresh: true });
+        if (r.status !== 200) {
             emailEl.textContent = '—';
-            statusEl.textContent = response && response.status === 401
+            statusEl.textContent = r.status === 401
                 ? 'You are signed out. Reload the page to sign in.'
                 : 'Not signed in. Accounts are not available in local development.';
             return;
         }
-        const me = await response.json();
+        const me = r.body;
         emailEl.textContent = me.email;
         statusEl.textContent = describe(me);
         billingBtn.hidden = !me.subscription;
         signoutRow.hidden = false;
     }
 
-    async function post(path) {
-        try {
-            const response = await fetch(path, {
-                method: 'POST', credentials: 'same-origin',
-                headers: { 'Content-Type': 'application/json' }, body: '{}',
-            });
-            return { ok: response.ok, body: await response.json().catch(() => ({})) };
-        } catch {
-            return { ok: false, body: {} };
-        }
-    }
-
     billingBtn.addEventListener('click', async () => {
         billingBtn.disabled = true;
         billingBtn.classList.add('is-busy');
         showError('');
-        const r = await post('/api/billing/portal');
+        const r = await AccountApi.billingPortal();
         billingBtn.disabled = false;
         billingBtn.classList.remove('is-busy');
-        if (r.ok && r.body.url) {
+        if (r.status === 200 && r.body.url) {
             window.open(r.body.url, '_blank', 'noopener');
             return;
         }
@@ -155,7 +141,7 @@
         signoutBtn.classList.add('is-busy');
         try {
             if (!(await leaveDevice())) return;
-            await post('/api/auth/logout');
+            await AccountApi.logout();
             location.assign('/auth/login');
         } catch (e) {
             console.error('[account] sign out failed:', e);

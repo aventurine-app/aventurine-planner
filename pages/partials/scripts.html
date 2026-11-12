@@ -24,8 +24,12 @@
     <script src="/static/js/web/workspace.js"></script>
     <script src="/static/js/web/backend.js"></script>
     <script src="/static/js/web/file-dialogs.js"></script>
-    <!-- Encrypted sync: the crypto, the server calls, this device's keys, the
-         recovery-key flow (vault-session.js) and the plans' sync (sync.js). -->
+    <!-- The site's own /api: one JSON client, the account calls (who is signed
+         in, billing, sign-out), then encrypted sync: the crypto, the vault
+         calls, this device's keys, the recovery-key flow (vault-session.js)
+         and the plans' sync (sync.js). -->
+    <script src="/static/js/web/json-client.js"></script>
+    <script src="/static/js/web/account-api.js"></script>
     <script src="/static/js/web/vault-crypto.js"></script>
     <script src="/static/js/web/vault-api.js"></script>
     <script src="/static/js/web/vault-keys.js"></script>

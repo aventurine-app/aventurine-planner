@@ -27,7 +27,6 @@
         overlay.querySelectorAll('.settings-panel').forEach((p) => { p.hidden = p.dataset.panel !== name; });
         if (name === 'storage') refreshStorage();
         if (name === 'account') Account.refresh();
-        if (name === 'about') refreshAbout();
     }
 
     overlay.querySelector('.settings-tabs').addEventListener('click', (e) => {
@@ -152,14 +151,6 @@
             persistBtn.classList.remove('is-busy');
         }
     });
-
-    // ── About ──────────────────────────────────────────────────────────────
-
-    /** The version, written into the page at build time (scripts/assemble.js). */
-    function refreshAbout() {
-        const meta = document.querySelector('meta[name="prism-version"]');
-        overlay.querySelector('[data-app-version]').textContent = meta ? meta.content : '—';
-    }
 
     function open(tab = 'appearance') {
         refreshAppearance();

@@ -53,8 +53,11 @@ preferences.
 ## How it fits together
 
 The app is plain HTML, CSS and JavaScript served as written, with no bundler.
-Its design system is Ant Design's (tokens, components, light and dark themes),
-rebuilt in the app's own stylesheets.
+Each file a page names carries the hash of its content in its address
+(`main.js?v=3f9a…`, written by `scripts/assemble.js`), so the browser keeps it
+for a year and a repeat visit fetches only the page; a changed file has a new
+address. Its design system is Ant Design's (tokens, components, light and dark
+themes), rebuilt in the app's own stylesheets.
 Everything it reads or saves goes through `window.citrineApi.request(method,
 url, body)`, which `static/js/web/` answers from IndexedDB. Encrypted sync
 copies the plans, sealed in the browser, to the account in the background; the
@@ -71,15 +74,17 @@ server never sees them readable.
 | `backend.js` | The URL map: routes requests to the workspace |
 | `file-dialogs.js` | Save and open a plan file with the browser's dialogs |
 | `boot.js` | Wires the above together and installs `window.citrineApi` |
+| `json-client.js` | One JSON call to this site's own `/api`, with the session, that never throws; behind the two below |
+| `account-api.js` | The worker's account routes (who is signed in, billing, sign out), asked once per page |
 | `vault-crypto.js` | Encrypted sync: recovery keys, the data key and wrapping it, sealing each plan (WebCrypto, AES-GCM) |
 | `vault-api.js` | The worker's `/api/vault` routes, as calls that never throw |
 | `vault-keys.js` | This device's copy of each vault's data key, in its own IndexedDB database |
 | `vault-session.js` | Set up, unlock, replace the recovery key, start over; the states the screens show |
 | `sync.js` | Sync with the vault: marks local changes unsent, pulls then pushes, settles conflicts; `readVault` for the export page |
 
-`api-error`, `plan-files`, `session`, `workspace`, `backend`, `vault-crypto`,
-`vault-api` and `vault-session` also `require()` under Node, which is how they
-are tested without a browser (`test/worker/vault-client.test.mjs` runs the
+`api-error`, `plan-files`, `session`, `workspace`, `backend`, `json-client`,
+`account-api`, `vault-crypto`, `vault-api` and `vault-session` also `require()`
+under Node, which is how they are tested without a browser (`test/worker/vault-client.test.mjs` runs the
 vault code against the real worker). `storage`, `vault-keys`, `file-dialogs` and
 `boot` need browser APIs and are covered by `npm run verify`.
 

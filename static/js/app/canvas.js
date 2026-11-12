@@ -642,7 +642,11 @@
         const lr = res && res.links[link.id];
         const two = !!link.back;
         const lb = two && lr ? lr.back : null;
-        const amount = sideAmount(lr, link.when, vp, res);
+        // A monthly payment to a debt shows what is actually being paid: over the
+        // whole plan, its last month's payment ($0 once the debt is cleared);
+        // scrubbing, that month's. Never what it is set to.
+        const paysDebt = D.roleOf(to) === 'debt' && link.when === 'monthly';
+        const amount = paysDebt && vp && vp.all && lr ? lr.flow[res.months - 1] : sideAmount(lr, link.when, vp, res);
         const idle = !lr || (lr.total < 0.005 && !(lb && lb.total >= 0.005));
         put(view, 'idle', idle, () => {
             view.g.classList.toggle('is-idle', idle);
@@ -680,7 +684,7 @@
         };
         // A side that does not run in the range shown (or this month) shows its rule.
         const runs = (e) => !!e && !!vp && (vp.all ? sideActiveMonths(e, res) > 0 : begun(e));
-        const figure = runs(lr) ? D.linkFigure(link, from, amount, vp.all, yearly(link.when, vp)) : { amount: D.linkShort(link, from), rule: null };
+        const figure = runs(lr) ? D.linkFigure(link, from, amount, vp.all, yearly(link.when, vp), paysDebt) : { amount: D.linkShort(link, from), rule: null };
         setHalf(view.front, 'front', figure);
         let backFig = null;
         if (two) {

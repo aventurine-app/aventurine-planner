@@ -4,14 +4,19 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { assemblePage, assembleDemoPage, authPageNames, STATIC_DIR } = require('../scripts/assemble');
+const { assemblePage, assembleDemoPage, authPageNames, unversioned, assetFile, STATIC_DIR } = require('../scripts/assemble');
 const { build } = require('../scripts/build');
 
 const page = assemblePage({ version: '9.9.9' });
+
+// The addresses a page names, without their `?v=` versions.
+const refsIn = (html) => [...html.matchAll(/(?:src|href)="(\/(?:static|demo)\/[^"]+)"/g)].map((m) => unversioned(m[1]));
+const scriptsIn = (html) => [...html.matchAll(/<script src="([^"]+)"/g)].map((m) => unversioned(m[1]));
 
 test('every include marker is replaced and the version is written into the page', () => {
     assert.ok(!/@include/.test(page));
@@ -25,15 +30,24 @@ test('a version cannot break out of the meta tag', () => {
 });
 
 test('every /static file the page names exists', () => {
-    const refs = [...page.matchAll(/(?:src|href)="(\/static\/[^"]+)"/g)].map((m) => m[1]);
+    const refs = refsIn(page);
     assert.ok(refs.length > 20);
-    for (const ref of refs) {
-        assert.ok(fs.existsSync(path.join(STATIC_DIR, ref.slice('/static/'.length))), `${ref} is missing`);
+    for (const ref of refs) assert.ok(fs.existsSync(assetFile(ref)), `${ref} is missing`);
+});
+
+test('every file the page names carries the hash of its content, so a changed file has a new address', () => {
+    const versioned = [...page.matchAll(/(?:src|href)="(\/static\/[^"]+)"/g)].map((m) => m[1]);
+    assert.ok(versioned.length > 20);
+    for (const ref of versioned) {
+        const m = /^(\/static\/[^?]+)\?v=([0-9a-f]{10})$/.exec(ref);
+        assert.ok(m, `${ref} is not versioned`);
+        const expected = crypto.createHash('sha256').update(fs.readFileSync(assetFile(m[1]))).digest('hex').slice(0, 10);
+        assert.equal(m[2], expected, `${ref} does not match its content`);
     }
 });
 
 test('the browser backend loads after the plan rules it uses and before the app that calls it', () => {
-    const scripts = [...page.matchAll(/<script src="([^"]+)"/g)].map((m) => m[1]);
+    const scripts = scriptsIn(page);
     const at = (name) => scripts.indexOf(`/static/js/${name}`);
     for (const dep of ['sim/plan.js', 'web/api-error.js', 'web/plan-files.js', 'web/backend.js', 'web/file-dialogs.js']) {
         assert.ok(at(dep) >= 0, `${dep} is not loaded`);
@@ -70,10 +84,10 @@ test('the sign-in pages are built, and need only files the worker serves to anyo
         const html = assemblePage({ page: `auth/${name}.html`, version: '9.9.9' });
         assert.ok(!/@include/.test(html), name);
         assert.ok([...html.matchAll(/<script\b[^>]*>/g)].every((m) => /\bsrc="/.test(m[0])), `${name} has an inline script`);
-        const refs = [...html.matchAll(/(?:src|href)="(\/static\/[^"]+)"/g)].map((m) => m[1]);
+        const refs = refsIn(html);
         assert.ok(refs.length > 5, name);
         for (const ref of refs) {
-            assert.ok(fs.existsSync(path.join(STATIC_DIR, ref.slice('/static/'.length))), `${name}: ${ref} is missing`);
+            assert.ok(fs.existsSync(assetFile(ref)), `${name}: ${ref} is missing`);
             assert.ok(isPublicAsset(ref), `${name} loads ${ref}, which the worker would keep behind sign-in`);
         }
     }
@@ -101,7 +115,7 @@ test('a build holds the sign-in pages', () => {
 // ── The free sandbox ───────────────────────────────────────────────────────
 
 const demoPage = assembleDemoPage({ version: '9.9.9' });
-const demoScripts = [...demoPage.matchAll(/<script src="([^"]+)"/g)].map((m) => m[1]);
+const demoScripts = scriptsIn(demoPage);
 
 test('the sandbox page loads only its own copy of the app, plus the one shared pre-paint script', () => {
     assert.ok(!/@include/.test(demoPage));
@@ -113,7 +127,7 @@ test('the sandbox page loads only its own copy of the app, plus the one shared p
 
 // The app's own storage, lock, account and encrypted sync: none of it runs in the sandbox.
 const NOT_IN_SANDBOX = [
-    'web/session.js', 'web/storage.js', 'web/boot.js', 'shell/account.js',
+    'web/session.js', 'web/storage.js', 'web/boot.js', 'web/json-client.js', 'web/account-api.js', 'shell/account.js',
     'web/vault-crypto.js', 'web/vault-api.js', 'web/vault-keys.js', 'web/vault-session.js', 'web/sync.js',
     'shell/vault-gate.js',
 ];
@@ -129,7 +143,7 @@ test('the sandbox swaps the app\'s storage and lock for its own, and keeps the r
     assert.ok(at('demo/limits.js') < at('app/store.js'), 'the app reads PrismDemo when it starts');
     assert.ok(at('app/titlebar.js') < at('demo/sandbox.js') && at('demo/sandbox.js') < at('app/main.js'));
     // Everything else the app page loads is still loaded.
-    const appScripts = [...page.matchAll(/<script src="\/static\/js\/([^"]+)"/g)].map((m) => m[1]);
+    const appScripts = scriptsIn(page).map((src) => src.slice('/static/js/'.length));
     for (const file of appScripts) {
         if (NOT_IN_SANDBOX.includes(file) || file === 'shell/theme-init.js') continue;
         assert.ok(at(file) >= 0, `${file} is missing from the sandbox`);
@@ -138,13 +152,10 @@ test('the sandbox swaps the app\'s storage and lock for its own, and keeps the r
 
 test('every file the sandbox page names exists, and the worker serves it to anyone', async () => {
     const { isPublicAsset } = await import('../worker/src/index.js');
-    const refs = [...demoPage.matchAll(/(?:src|href)="(\/(?:static|demo)\/[^"]+)"/g)].map((m) => m[1]);
+    const refs = refsIn(demoPage);
     assert.ok(refs.length > 40);
     for (const ref of refs) {
-        const file = ref.startsWith('/demo/js/')
-            ? path.join(STATIC_DIR, 'js', ref.slice('/demo/js/'.length))
-            : path.join(STATIC_DIR, ref.slice('/static/'.length));
-        assert.ok(fs.existsSync(file), `${ref} is missing`);
+        assert.ok(fs.existsSync(assetFile(ref)), `${ref} is missing`);
         assert.ok(isPublicAsset(ref), `${ref} would be kept behind sign-in`);
     }
 });
@@ -172,13 +183,10 @@ test('the export page runs from the public copy of the scripts, never the app\'s
     const html = assembleExportPage({ version: '9.9.9' });
     assert.ok(!/@include/.test(html));
     assert.ok([...html.matchAll(/<script\b[^>]*>/g)].every((m) => /\bsrc="/.test(m[0])), 'an inline script');
-    const refs = [...html.matchAll(/(?:src|href)="(\/(?:static|demo)\/[^"]+)"/g)].map((m) => m[1]);
+    const refs = refsIn(html);
     assert.ok(refs.some((r) => r === '/demo/js/shell/export-page.js'));
     for (const ref of refs) {
-        const file = ref.startsWith('/demo/js/')
-            ? path.join(STATIC_DIR, 'js', ref.slice('/demo/js/'.length))
-            : path.join(STATIC_DIR, ref.slice('/static/'.length));
-        assert.ok(fs.existsSync(file), `${ref} is missing`);
+        assert.ok(fs.existsSync(assetFile(ref)), `${ref} is missing`);
         assert.ok(isPublicAsset(ref), `${ref} would be kept behind sign-in`);
     }
     // It reads the vault but keeps nothing: no app storage, lock or sync engine started.

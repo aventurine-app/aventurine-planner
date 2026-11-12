@@ -326,7 +326,9 @@ test('no rule asks for "the payment due": a saved one becomes the fixed payment 
     const v = roundTrip(plan);
     const get = (id) => v.links.find((l) => l.id === id);
     assert.deepEqual([get('l_loan').mode, get('l_loan').when], ['fixed', 'monthly']);
-    close(get('l_loan').value, Plan.loanPayment(loan.params));
+    // A saved loan carried its years left; the payment it asked is level over them.
+    const r = 7 / 1200;
+    close(get('l_loan').value, 20000 * r / (1 - Math.pow(1 + r, -36)));
     assert.deepEqual([get('l_card').mode, get('l_card').value], ['fixed', 400], 'the balance plus a month of purchases');
 });
 
@@ -392,12 +394,6 @@ test('an Investment can be locked until a date', () => {
     assert.ok(Catalog.fieldsFor(Catalog.preset('investment')).includes('lockUntil'));
 });
 
-test('a loan payment levels out over its years left', () => {
-    close(Plan.loanPayment({ balance: 300000, rate: 6, term: 30 }), 1798.65, 1e-5);
-    close(Plan.loanPayment({ balance: 12000, rate: 0, term: 1 }), 1000);
-    close(Plan.loanPayment({ balance: 5000, rate: 9 }), 0);
-});
-
 test('fitRule keeps a rule inside what its source allows', () => {
     const { nodes: [salary] } = planWith('salary');
     const l = { mode: 'above', basis: 'balance', when: 'once', value: 5 };
@@ -449,13 +445,21 @@ test('cloneWithNewIds gives a plan that shares no id with the original', () => {
     assert.doesNotThrow(() => Plan.validatePlan(copy));
 });
 
-test('default rules: a debt is paid what it asks for, a 401(k) a slice of pay', () => {
+test('a saved loan that still has years left loads without it', () => {
+    const { plan, nodes: [loan] } = planWith('loan');
+    Object.assign(loan.params, { balance: 5000, rate: 6, term: 4 });
+    const v = roundTrip(plan);
+    assert.ok(!('term' in v.nodes[0].params));
+    assert.equal(v.nodes[0].params.balance, 5000);
+});
+
+test('default rules: a debt is paid a round monthly figure, a 401(k) a slice of pay', () => {
     const { plan, nodes: [salary, loan, k, savings] } = planWith('salary', 'loan', '401k', 'bank-account');
-    Object.assign(loan.params, { balance: 12000, rate: 0, term: 1 });
+    Object.assign(loan.params, { balance: 12000, rate: 0 });
     const pay = Plan.createLink(plan, salary.id, loan.id);
-    assert.deepEqual([pay.mode, pay.value, pay.when], ['fixed', 1000, 'monthly']);
+    assert.deepEqual([pay.mode, pay.value, pay.when], ['fixed', 500, 'monthly']);
     const fromSavings = Plan.createLink(plan, savings.id, loan.id);
-    assert.deepEqual([fromSavings.basis, fromSavings.mode, fromSavings.value], ['balance', 'fixed', 1000]);
+    assert.deepEqual([fromSavings.basis, fromSavings.mode, fromSavings.value], ['balance', 'fixed', 500]);
     const contribute = Plan.createLink(plan, salary.id, k.id);
     assert.deepEqual([contribute.mode, contribute.value], ['percent', 6]);
 });
