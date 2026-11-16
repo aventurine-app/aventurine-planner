@@ -957,6 +957,12 @@
         render();
     }
 
+    // Nothing on the plane is a native drag source (no text, images or links
+    // to carry off); a native drag would swallow the pointer gesture.
+    stage.addEventListener('dragstart', (e) => {
+        if (!e.target.closest?.('.island, .canvas-empty .empty-state')) e.preventDefault();
+    });
+
     stage.addEventListener('pointerdown', (e) => {
         if (e.target.closest('.island, .canvas-empty .empty-state')) return;
         UI.closePop();
@@ -969,6 +975,11 @@
             return;
         }
         if (e.button !== 0) return;
+        // Every left-press on the plane is ours (drag, connect, box-select):
+        // keep the browser from starting a text selection or a native drag of
+        // one, and drop any selection left over from elsewhere.
+        e.preventDefault();
+        window.getSelection()?.removeAllRanges();
         // A debt's input dot is a button (who pays this?), not a drag handle.
         if (e.target.closest('.node-port--in') && e.target.closest('.node')?.dataset.role === 'debt') return;
 

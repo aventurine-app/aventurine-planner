@@ -43,6 +43,10 @@
     cursor: default;
     outline: none;
     touch-action: none;
+    /* A drag on the plane selects modules, never text: a native text
+       selection here would turn the next press into a drag of the page. */
+    user-select: none;
+    -webkit-user-select: none;
 }
 .stage.is-panning { cursor: grabbing; }
 .stage.is-space { cursor: grab; }
