@@ -1,29 +1,32 @@
 'use strict';
 
 // ─── compare.js ─────────────────────────────────────────────────────────────
-// The Compare workspace, as an Ant Design page: two plans side by side, and
-// every plan ranked. Every plan runs over the same length (the Over chips,
-// kept in Prefs) from its own start; the plans keep their own lengths, as
-// Compare runs a copy (Runs.all({ years })).
+// The Compare workspace, as an Ant Design page: up to four plans side by
+// side. Every plan runs over the same length (the Over chips, kept in Prefs)
+// from its own start; the plans keep their own lengths, as Compare runs a
+// copy (Runs.all({ years })).
 //
-//   Two plans     picked in the bar (A in blue, B in orange; Swap trades
-//                 them), with which ends ahead and by how much
-//     Net worth     both plans' net worth over the run, the gap between them
-//                   shaded; hovering reads every month
-//     Side by side  net worth and debt at the end, when debt is gone, what was
-//                   spent, interest, growth, taxes and the goals met on time,
-//                   each with the difference
-//   All plans     every plan in a row: net worth at the end, growth (account
-//                 earnings plus card cash back), debt payoff (months until
-//                 nothing is owed for the rest of the run: "No debt" when
-//                 nothing ever is, "Not paid off" when debt is still owed at
-//                 the end), expenses (what expense modules and budget groups
-//                 spent over the run; taxes and card fees aside). Each
-//                 column is ranked: the best tagged Best with a green trophy,
-//                 the runners-up 2nd (silver) and 3rd (bronze), each tinted,
-//                 so rank never rests on colour alone.
+//   Picks         four plan dropdowns, each in its own colour (blue, orange,
+//                 cyan, purple). The first is always a plan; the others may
+//                 be None. Picking a plan another dropdown shows swaps them.
+//   Tabs          one card, one view at a time (kept in Prefs):
+//     Net worth     the picked plans' net worth over the run; with two, the
+//                   gap between them is shaded. Hovering reads every month.
+//     Metrics       the picked plans as columns, the measures as rows: net
+//                   worth and debt at the end, debt payoff (months until
+//                   nothing is owed for the rest of the run: "No debt" when
+//                   nothing ever is, "Not paid off" when debt is still owed at
+//                   the end), expenses (what expense modules and budget groups
+//                   spent; taxes and card fees aside), interest, growth
+//                   (account earnings plus card cash back), taxes and the
+//                   goals met on time. Each row is ranked: the best tagged
+//                   Best with a green trophy, the runners-up 2nd (silver) and
+//                   3rd (bronze), each tinted, so rank never rests on colour
+//                   alone.
+//     Goals         when each picked plan meets each goal (over the goal
+//                   horizon, not the length compared).
 //
-// Pressing a plan's name opens it in Analyze.
+// Pressing a plan's name in Metrics opens it in Analyze.
 
 (function () {
     const D = window.Describe;
@@ -42,59 +45,74 @@
     // wears the success green instead.
     const MEDALS = [null, 'silver', 'bronze'];
 
+    // The four picks: each one's letter and chart colour.
+    const SLOTS = ['a', 'b', 'c', 'd'];
+    const SLOT_NAMES = ['First plan', 'Second plan', 'Third plan', 'Fourth plan'];
+    const colorOf = (i) => `--chart-plan-${SLOTS[i]}`;
+
+    const VIEWS = [['worth', 'Net worth', 'chart-line'], ['metrics', 'Metrics', 'table'], ['goals', 'Goals', 'target']];
+
     const LENGTHS = Store.LENGTHS;
-    const PREFS = { years: 'compare-years', pair: 'compare-pair' };
+    const PREFS = { years: 'compare-years', picks: 'compare-plans', pair: 'compare-pair', view: 'compare-view' };
     const yearsWord = (y) => `${y} year${y === 1 ? '' : 's'}`;
+
+    let view = Prefs.get(PREFS.view, 'worth');
+    if (!VIEWS.some(([v]) => v === view)) view = 'worth';
 
     /** Months until debt-free, in words. */
     const payoff = (v) => (v === Infinity ? 'Not paid off' : v === 0 ? 'No debt' : D.duration(v));
 
-    // All plans' columns: their name, how to read them off a run, and which end is best.
-    const COLUMNS = [
+    // Metrics' rows: their name, how to read them off a run, and which end is
+    // best ('max', 'min'; Infinity, debt still owed at the end, never places).
+    const MEASURES = [
         { id: 'worth', name: 'Net worth', note: 'At the end', best: 'max', show: (v) => money(v), signed: true },
-        { id: 'growth', name: 'Growth', note: 'Interest and rewards', best: 'max', show: (v) => money(v) },
+        { id: 'owed', name: 'Owed', note: 'At the end', best: 'min', show: (v) => money(v) },
         { id: 'payoff', name: 'Debt payoff', note: 'Until debt-free', best: 'min', show: payoff },
         { id: 'expenses', name: 'Expenses', note: 'Over the whole run', best: 'min', show: (v) => money(v) },
+        { id: 'interest', name: 'Interest paid', note: 'Over the whole run', best: 'min', show: (v) => money(v) },
+        { id: 'growth', name: 'Growth', note: 'Interest and rewards', best: 'max', show: (v) => money(v) },
+        { id: 'taxes', name: 'Taxes paid', note: 'Over the whole run', best: 'min', show: (v) => money(v) },
+        { id: 'goalsMet', name: 'Goals met on time', goals: true, best: 'max', show: (v, f) => `${v} of ${f.goalCount}` },
     ];
-
 
     root.innerHTML = `
         <div class="page scroll-y">
-            <section class="card compare-pick" aria-label="Two plans to compare">
-                <div class="compare-pick-body">
-                    <span class="badge-dot compare-dot--a" aria-hidden="true"></span>${K.planPick({ act: 'pick-a', label: 'First plan' })}
-                    <button class="button-secondary button-icon" type="button" data-act="swap" aria-label="Swap the two plans" title="Swap">${iconSvg('arrows-left-right')}</button>
-                    <span class="badge-dot compare-dot--b" aria-hidden="true"></span>${K.planPick({ act: 'pick-b', label: 'Second plan' })}
-                    <div class="compare-over">
+            <section class="card compare-pick" aria-label="Plans to compare">
+                <div class="compare-pick-body">${SLOTS.map((s, i) => `
+                    <div class="compare-slot">
+                        ${K.planPick({ act: `pick-${i}`, label: SLOT_NAMES[i] })}
+                    </div>`).join('')}
+                </div>
+            </section>
+            <section class="card compare-card" aria-label="Plans compared">
+                <div class="outlook-bar">
+                    ${K.tabs(VIEWS, view, { label: 'Compare view' })}
+                    <div class="outlook-tools compare-over">
                         <span class="page-label" aria-hidden="true">Over</span>
                         ${K.segmented(LENGTHS.map((y) => [y, `${y}Y`]), null, { attr: 'years', label: 'Length every plan runs over', chips: true })}
                     </div>
                 </div>
-            </section>
-            <div class="card-row" data-pair>
-                <section class="card" aria-labelledby="compare-chart-title">
-                    <div class="card-head"><h2 class="card-title" id="compare-chart-title">Net worth</h2><div class="chart-legend compare-legend"></div></div>
-                    <div class="compare-chart-body"><div class="chart-box compare-chart"></div></div>
-                </section>
-                <section class="card" aria-labelledby="compare-side-title">
-                    <div class="card-head"><h2 class="card-title" id="compare-side-title">Side by side</h2></div>
-                    <div class="card-body card-body--flush"><div class="table-wrap" data-side></div></div>
-                </section>
-            </div>
-            <section class="card compare-all" aria-labelledby="compare-all-title">
-                <div class="card-head"><h2 class="card-title" id="compare-all-title">All plans</h2></div>
-                <div class="card-body card-body--flush"><div class="table-wrap compare-wrap"></div></div>
+                <div class="compare-pane" data-pane="worth" role="tabpanel" aria-label="Net worth">
+                    <div class="chart-pane">
+                        <div class="chart-legend compare-legend"></div>
+                        <div class="chart-box compare-chart"></div>
+                    </div>
+                    <div class="compare-none" hidden></div>
+                </div>
+                <div class="compare-pane table-wrap" data-pane="metrics" role="tabpanel" aria-label="Metrics"></div>
+                <div class="compare-pane table-wrap" data-pane="goals" role="tabpanel" aria-label="Goals"></div>
             </section>
         </div>`;
 
-    const pickA = root.querySelector('[data-act="pick-a"]');
-    const pickB = root.querySelector('[data-act="pick-b"]');
-    const swapBtn = root.querySelector('[data-act="swap"]');
-    const pairRow = root.querySelector('[data-pair]');
+    const pickBtns = SLOTS.map((_, i) => root.querySelector(`[data-act="pick-${i}"]`));
+    const panes = root.querySelectorAll('[data-pane]');
     const legendEl = root.querySelector('.compare-legend');
     const chartBox = root.querySelector('.compare-chart');
-    const sideEl = root.querySelector('[data-side]');
-    const wrap = root.querySelector('.compare-wrap');
+    const chartPane = root.querySelector('.chart-pane');
+    const noneEl = root.querySelector('.compare-none');
+    const metricsEl = root.querySelector('[data-pane="metrics"]');
+    const goalsEl = root.querySelector('[data-pane="goals"]');
+    const overEl = root.querySelector('.compare-over');
     const showing = () => Store.state.workspace === 'compare';
 
     /** The length every plan is run over. */
@@ -103,19 +121,31 @@
         return LENGTHS.includes(y) ? y : 30;
     }
 
-    /** The two plans side by side, as ids: the pair kept in Prefs where both
-     *  still exist, else the first plans in the navigation. `b` is null when
-     *  there is only one plan. */
-    function pair() {
+    /** The four picks, as plan ids or null: those kept in Prefs where they
+     *  still exist (an older two-plan pair is read too), else the first four
+     *  plans in the navigation. The first is a plan whenever there is one. */
+    function picks() {
         const { tabs } = Store.state;
-        let saved = [];
-        try { saved = JSON.parse(Prefs.get(PREFS.pair, '[]')); } catch { saved = []; }
-        if (!Array.isArray(saved)) saved = [];
-        const a = tabs.includes(saved[0]) ? saved[0] : tabs[0] || null;
-        const b = tabs.includes(saved[1]) && saved[1] !== a ? saved[1] : tabs.find((id) => id !== a) || null;
-        return { a, b };
+        const read = (key) => { try { return JSON.parse(Prefs.get(key, 'null')); } catch { return null; } };
+        let saved = read(PREFS.picks);
+        if (!Array.isArray(saved)) saved = read(PREFS.pair);
+        if (!Array.isArray(saved)) saved = tabs.slice(0, SLOTS.length);
+        const seen = new Set();
+        const out = SLOTS.map((_, i) => {
+            const id = saved[i];
+            if (!tabs.includes(id) || seen.has(id)) return null;
+            seen.add(id);
+            return id;
+        });
+        if (!out[0] && tabs.length) {
+            // The first pick is never None: an unpicked plan, else the first picked.
+            const free = tabs.find((id) => !seen.has(id));
+            if (free) out[0] = free;
+            else { const j = out.findIndex(Boolean); out[0] = out[j]; out[j] = null; }
+        }
+        return out;
     }
-    const setPair = (a, b) => Prefs.set(PREFS.pair, JSON.stringify([a, b]));
+    const setPicks = (ids) => Prefs.set(PREFS.picks, JSON.stringify(ids));
 
     // ── Figures ────────────────────────────────────────────────────────────
 
@@ -153,7 +183,6 @@
             worthSeries: Float64Array.from(res.netWorth, (v, k) => v * def[k]),
             owed: owed * def[n],
             payoff: debtFree(res),
-            spent: sum((m) => F.spent[m] + F.skimmed[m]),
             // What expenses and budget groups spent: the Sankey's Spending,
             // without taxes or a card's fees.
             expenses: sum((m) => F.spent[m]),
@@ -161,56 +190,22 @@
             growth: sum((m) => F.growth[m] + F.cashback[m]),
             // Card annual fees (the only other cut, `skimmed`) are fees, not taxes.
             taxes: sum((m) => F.withheld[m]),
+            evs: goalRes ? evs : null,
             goalsMet: evs.filter((e) => e.status === 'met').length,
             goalCount: goals.length,
         };
     }
 
-    // ── Two plans ──────────────────────────────────────────────────────────
-
-    /** A difference as a tag: green where A does better, red where worse,
-     *  grey where they match or neither way is better. */
-    function diffTag(d, { better = 'up', text } = {}) {
-        if (Math.abs(d) < 0.5) return K.tag('Same');
-        const up = d > 0;
-        const tone = better === 'none' ? '' : (up === (better === 'up')) ? 'success' : 'error';
-        return K.tag(text || money(Math.abs(d), { compact: true }), { tone, icon: up ? 'arrow-up' : 'arrow-down' });
+    /** The picked plans that ran, in pick order, each with its slot. */
+    function picked(rows) {
+        return picks().map((id, slot) => {
+            const r = id && rows.find((x) => x.plan.id === id);
+            return r && r.f ? { ...r, slot } : null;
+        }).filter(Boolean);
     }
 
-    /** When a plan is debt-free from, as words. */
-    function freeFrom(plan, f) {
-        if (f.payoff === Infinity) return 'Not in this run';
-        if (f.payoff === 0) return 'No debt';
-        return D.monthLabel(plan, f.payoff);
-    }
 
-    function sideBySide(a, b, fa, fb) {
-        const rows = [
-            ['Net worth at the end', money(fa.worth), money(fb.worth), diffTag(fa.worth - fb.worth)],
-            ['Owed at the end', money(fa.owed), money(fb.owed), diffTag(fa.owed - fb.owed, { better: 'down' })],
-            ['Debt-free from', freeFrom(a.plan, fa), freeFrom(b.plan, fb),
-                Number.isFinite(fa.payoff) && Number.isFinite(fb.payoff) && fa.payoff !== fb.payoff
-                    ? diffTag(fa.payoff - fb.payoff, { better: 'down', text: D.duration(Math.abs(fa.payoff - fb.payoff)) })
-                    : fa.payoff === fb.payoff ? K.tag('Same') : '<span class="is-muted">—</span>'],
-            ['Spent', money(fa.spent), money(fb.spent), diffTag(fa.spent - fb.spent, { better: 'none' })],
-            ['Interest paid', money(fa.interest), money(fb.interest), diffTag(fa.interest - fb.interest, { better: 'down' })],
-            ['Growth', money(fa.growth), money(fb.growth), diffTag(fa.growth - fb.growth)],
-            ['Taxes paid', money(fa.taxes), money(fb.taxes), diffTag(fa.taxes - fb.taxes, { better: 'down' })],
-        ];
-        if (fa.goalCount) {
-            rows.push(['Goals met on time', `${fa.goalsMet} of ${fa.goalCount}`, `${fb.goalsMet} of ${fb.goalCount}`,
-                diffTag(fa.goalsMet - fb.goalsMet, { text: String(Math.abs(fa.goalsMet - fb.goalsMet)) })]);
-        }
-        sideEl.innerHTML = `<table class="data-table table--md compare-side">
-            <caption class="sr-only">${esc(a.plan.name)} and ${esc(b.plan.name)} side by side</caption>
-            <thead><tr><th scope="col">Measure</th>
-                <th scope="col" class="is-num"><span class="badge-dot compare-dot--a">${esc(a.plan.name)}</span></th>
-                <th scope="col" class="is-num"><span class="badge-dot compare-dot--b">${esc(b.plan.name)}</span></th>
-                <th scope="col" class="is-num"><abbr title="${esc(a.plan.name)} against ${esc(b.plan.name)}">Difference</abbr></th></tr></thead>
-            <tbody>${rows.map(([name, va, vb, d]) => `<tr><th scope="row" class="is-muted">${esc(name)}</th>
-                <td class="is-num">${esc(va)}</td><td class="is-num">${esc(vb)}</td><td class="is-num">${d}</td></tr>`).join('')}</tbody>
-        </table>`;
-    }
+    // ── Net worth ──────────────────────────────────────────────────────────
 
     /** Ticks along a run of `y` years counted from each plan's own start
      *  (the plans may start in different months): Start, 1y, 2y…, thinned
@@ -222,124 +217,185 @@
         return ticks;
     }
 
-    function drawPair(a, b, fa, fb, y) {
+    function renderWorth(chosen, y) {
+        chartPane.hidden = !chosen.length;
+        noneEl.hidden = !!chosen.length;
+        if (!chosen.length) {
+            noneEl.innerHTML = K.empty({ icon: 'files', title: 'No plans to compare' });
+            return;
+        }
+        if (view !== 'worth') return;
         const count = y * 12 + 1;
-        legendEl.innerHTML = [[a.plan.name, '--chart-plan-a'], [b.plan.name, '--chart-plan-b']].map(([name, color]) =>
-            `<span class="chart-legend-item"><i class="is-line" style="--swatch: var(${color})"></i>${esc(name)}</span>`).join('');
+        const two = chosen.length === 2;
+        legendEl.innerHTML = chosen.map((p) =>
+            `<span class="chart-legend-item"><i class="is-line" style="--swatch: var(${colorOf(p.slot)})"></i>${esc(p.plan.name)}</span>`).join('');
         Chart.draw(chartBox, {
             kind: 'area',
-            label: `Net worth of ${a.plan.name} and ${b.plan.name} over ${yearsWord(y)}`,
+            label: `Net worth of ${chosen.map((p) => p.plan.name).join(', ')} over ${yearsWord(y)}`,
             count,
             xTicks: runTicks(y),
             bands: [],
-            lines: [
-                { label: a.plan.name, color: '--chart-plan-a', values: fa.worthSeries },
-                { label: b.plan.name, color: '--chart-plan-b', values: fb.worthSeries },
-            ],
-            between: true,
+            lines: chosen.map((p) => ({ label: p.plan.name, color: colorOf(p.slot), values: p.f.worthSeries })),
+            between: two,
             format: (v) => money(v, { compact: true }),
             tooltip: (k) => ({
                 title: k === 0 ? 'At the start' : `${D.duration(k)} in`,
                 rows: [
-                    { label: a.plan.name, color: '--chart-plan-a', value: money(fa.worthSeries[k]) },
-                    { label: b.plan.name, color: '--chart-plan-b', value: money(fb.worthSeries[k]) },
-                    { label: 'Difference', color: '--chart-grid', value: money(fa.worthSeries[k] - fb.worthSeries[k], { sign: true }), total: true },
+                    ...chosen.map((p) => ({ label: p.plan.name, color: colorOf(p.slot), value: money(p.f.worthSeries[k]) })),
+                    ...(two ? [{ label: 'Difference', color: '--chart-grid', value: money(chosen[0].f.worthSeries[k] - chosen[1].f.worthSeries[k], { sign: true }), total: true }] : []),
                 ],
             }),
         });
     }
 
-    function renderPair(rows, y) {
-        const { a: aId, b: bId } = pair();
-        const a = rows.find((r) => r.plan.id === aId);
-        const b = rows.find((r) => r.plan.id === bId);
-        pickA.querySelector('.plan-pick-name').textContent = a ? a.plan.name : '';
-        pickB.querySelector('.plan-pick-name').textContent = b ? b.plan.name : 'Add a second plan';
-        pickB.disabled = !b;
-        swapBtn.disabled = !b;
-        pairRow.hidden = !a || !b || !a.f || !b.f;
-        if (pairRow.hidden) return;
-        sideBySide(a, b, a.f, b.f);
-        drawPair(a, b, a.f, b.f, y);
+    // ── Metrics ────────────────────────────────────────────────────────────
+
+    function renderMetrics(chosen, y) {
+        if (!chosen.length) { metricsEl.innerHTML = K.empty({ icon: 'files', title: 'No plans to compare' }); return; }
+        const rows = MEASURES.filter((m) => !m.goals || chosen[0].f.goalCount);
+        /** A figure's podium place in its row (0 = best), or -1 off the podium
+         *  or last. Figures within half a unit tie and share a place. */
+        const placer = (m) => {
+            const vals = chosen.map((p) => p.f[m.id]).filter(Number.isFinite)
+                .sort((a, b) => (m.best === 'max' ? b - a : a - b));
+            const distinct = vals.filter((v, i) => i === 0 || Math.abs(v - vals[i - 1]) >= 0.5);
+            return (v) => {
+                if (distinct.length < 2) return -1;
+                const i = distinct.findIndex((d) => Math.abs(v - d) < 0.5);
+                return i >= 0 && i < HEAT.length && i < distinct.length - 1 ? i : -1;
+            };
+        };
+        const cell = (m, place, p) => {
+            const v = p.f[m.id];
+            const at = place(v);
+            const cls = ['is-num', at >= 0 ? 'is-heat' : '', m.signed && v < -0.5 ? 'is-negative' : ''].filter(Boolean).join(' ');
+            const badge = at >= 0 ? K.tag(PLACES[at], { tone: at === 0 ? 'success' : '', icon: 'trophy' }) : '';
+            const medal = at > 0 ? ` data-medal="${MEDALS[at]}"` : '';
+            return `<td class="${cls}"${at >= 0 ? ` style="--heat: ${HEAT[at]}"` : ''}><span class="compare-cell"${medal}>${badge}<span class="compare-value">${esc(m.show(v, p.f))}</span></span></td>`;
+        };
+        // Each plan's first and last months, as the plan builder's scrubber names them.
+        const head = (p) => `<th scope="col" class="is-num"><span class="compare-col">
+            <button class="button-link compare-plan" type="button" data-open="${esc(p.plan.id)}" title="Analyze ${esc(p.plan.name)}">${esc(p.plan.name)}</button>
+            <span class="compare-col-note">${esc(`${D.monthLabel(p.plan, 0)} to ${D.monthLabel(p.plan, y * 12 - 1)}`)}</span></span></th>`;
+        metricsEl.innerHTML = `<table class="data-table compare-table">
+            <caption class="sr-only">${esc(chosen.map((p) => p.plan.name).join(', '))} compared over ${esc(yearsWord(y))}</caption>
+            <thead><tr><th scope="col" class="is-sticky">Measure</th>${chosen.map(head).join('')}</tr></thead>
+            <tbody>${rows.map((m) => {
+                const place = placer(m);
+                return `<tr><th scope="row" class="is-sticky"><span class="compare-measure">${esc(m.name)}${m.note ? `<span class="compare-col-note">${esc(m.note)}</span>` : ''}</span></th>
+                    ${chosen.map((p) => cell(m, place, p)).join('')}</tr>`;
+            }).join('')}</tbody>
+        </table>`;
     }
 
-    // ── All plans ──────────────────────────────────────────────────────────
+    // ── Goals ──────────────────────────────────────────────────────────────
 
-    function renderAll(rows, y) {
-        if (!rows.length) {
-            wrap.innerHTML = K.empty({ icon: 'files', title: 'No plans yet' });
+    /** A goal's status in a few words for a table cell; the full words are
+     *  its title. As the goal board's matrix shows it (goals-board.js). */
+    function shortStatus(ev, plan) {
+        const full = D.goalStatus(ev, plan);
+        const title = full.detail ? `${full.text} · ${full.detail}` : full.text;
+        if (ev.status === 'blocked') return { text: 'Cannot measure', tone: '', icon: 'minus-circle', title };
+        if (ev.status === 'met') return { text: ev.month === 0 ? 'Already' : D.monthLabel(plan, ev.month), tone: 'success', icon: 'check-circle', title };
+        if (ev.status === 'late') return { text: `${D.monthLabel(plan, ev.month)} · late`, tone: 'warning', icon: 'clock', title };
+        return { text: 'Never met', tone: 'error', icon: 'x-circle', title };
+    }
+
+    function renderGoals(chosen) {
+        const goals = Store.state.goals;
+        if (!goals.length) {
+            goalsEl.innerHTML = K.empty({ icon: 'target', title: 'No goals yet',
+                text: 'Add goals to see when each plan meets them.', action: { act: 'goals', label: 'Open Goals', icon: 'target' } });
             return;
         }
-        // Each column's distinct figures, best first, when the plans differ on
-        // it at all. Figures within half a unit tie and share a place (debt
-        // still owed at the end, Infinity, never places).
-        const ranked = {};
-        const measured = rows.filter((r) => r.f);
-        for (const c of COLUMNS) {
-            const vals = measured.map((r) => r.f[c.id]).sort((p, q) => (c.best === 'max' ? q - p : p - q));
-            const distinct = vals.filter((v, i) => i === 0 || Math.abs(v - vals[i - 1]) >= 0.5);
-            if (distinct.length > 1) ranked[c.id] = distinct;
-        }
-        /** A figure's podium place (0 = best), or -1 off the podium or last. */
-        const place = (c, v) => {
-            const distinct = ranked[c.id];
-            if (!distinct) return -1;
-            const i = distinct.findIndex((d) => Math.abs(v - d) < 0.5);
-            return i < HEAT.length && i < distinct.length - 1 ? i : -1;
+        if (!chosen.length) { goalsEl.innerHTML = K.empty({ icon: 'files', title: 'No plans to compare' }); return; }
+        const cell = (p, i) => {
+            const ev = p.f.evs && p.f.evs[i];
+            if (!ev) return '<td class="is-muted">—</td>';
+            const s = shortStatus(ev, p.plan);
+            return `<td>${K.tag(s.text, { tone: s.tone, icon: s.icon, title: s.title })}</td>`;
         };
-        const cell = (r, c) => {
-            if (!r.f) return '<td class="is-num is-muted">—</td>';
-            const v = r.f[c.id];
-            const p = place(c, v);
-            const cls = ['is-num', p >= 0 ? 'is-heat' : '', c.signed && v < -0.5 ? 'is-negative' : ''].filter(Boolean).join(' ');
-            const badge = p >= 0 ? K.tag(PLACES[p], { tone: p === 0 ? 'success' : '', icon: 'trophy' }) : '';
-            const medal = p > 0 ? ` data-medal="${MEDALS[p]}"` : '';
-            return `<td class="${cls}"${p >= 0 ? ` style="--heat: ${HEAT[p]}"` : ''}><span class="compare-cell"${medal}>${badge}<span class="compare-value">${esc(c.show(v))}</span></span></td>`;
-        };
-        wrap.innerHTML = `<table class="data-table compare-table">
-            <caption class="sr-only">Every plan compared over ${esc(yearsWord(y))}</caption>
-            <thead><tr><th scope="col" class="is-sticky">Plan</th>${COLUMNS.map((c) => `<th scope="col" class="is-num"><span class="compare-col">${esc(c.name)}<span class="compare-col-note">${esc(c.note)}</span></span></th>`).join('')}</tr></thead>
-            <tbody>${rows.map((r) => {
-                // The first and last months, as the plan builder's scrubber names them.
-                const span = `${D.monthLabel(r.plan, 0)} to ${D.monthLabel(r.plan, y * 12 - 1)}`;
-                return `<tr>
-                    <th scope="row" class="is-sticky">
-                        <button class="button-link compare-plan" type="button" data-open="${esc(r.plan.id)}" title="Analyze ${esc(r.plan.name)}">${esc(r.plan.name)}</button>
-                        <span class="compare-span">${esc(span)}</span>
-                    </th>
-                    ${COLUMNS.map((c) => cell(r, c)).join('')}
-                </tr>`;
-            }).join('')}</tbody>
+        goalsEl.innerHTML = `<table class="data-table table--md compare-goals">
+            <caption class="sr-only">When each plan meets each goal</caption>
+            <thead><tr><th scope="col" class="is-sticky">Goal</th>${chosen.map((p) => `<th scope="col">${esc(p.plan.name)}</th>`).join('')}</tr></thead>
+            <tbody>${goals.map((g, i) => `<tr>
+                <th scope="row" class="is-sticky">${esc(g.name || 'Goal')}</th>
+                ${chosen.map((p) => cell(p, i)).join('')}</tr>`).join('')}</tbody>
         </table>`;
     }
 
     // ── Render ─────────────────────────────────────────────────────────────
 
+    function renderPicks() {
+        const ids = picks();
+        const many = Store.state.tabs.length > 1;
+        ids.forEach((id, i) => {
+            const btn = pickBtns[i];
+            const name = id ? Store.planName(id) : '';
+            const nameEl = btn.querySelector('.plan-pick-name');
+            nameEl.textContent = name || 'None';
+            nameEl.classList.toggle('is-placeholder', !id);
+            btn.disabled = i > 0 && !many;
+            btn.setAttribute('aria-label', `${SLOT_NAMES[i]}: ${name || 'None'}`);
+        });
+    }
+
+    function renderTabs() {
+        root.querySelectorAll('[data-tab]').forEach((b) => {
+            const on = b.dataset.tab === view;
+            b.setAttribute('aria-selected', String(on));
+            b.tabIndex = on ? 0 : -1;
+        });
+        panes.forEach((p) => { p.hidden = p.dataset.pane !== view; });
+        // Goals are judged over the goal horizon, so the length is no use
+        // there; its chips keep their room, so the bar keeps its height.
+        overEl.classList.toggle('is-off', view === 'goals');
+    }
+
     function render() {
         if (!showing()) return;
         const y = years();
         root.querySelectorAll('[data-years]').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.years) === y)));
+        renderTabs();
+        renderPicks();
         const rows = Runs.all({ years: y }).map(({ plan, results }) => ({ plan, results, f: figures(plan, results) }));
-        renderPair(rows, y);
-        renderAll(rows, y);
+        const chosen = picked(rows);
+        renderWorth(chosen, y);
+        renderMetrics(chosen, y);
+        renderGoals(chosen);
     }
 
-    /** The plans' menu for one side of the pair; picking the other side's
-     *  plan swaps the two. */
-    function pickMenu(btn, side) {
-        const { a, b } = pair();
-        const now = side === 'a' ? a : b;
-        UI.menu(btn, Store.state.tabs.map((id) => ({
+    function showView(v) {
+        if (v === view) return;
+        view = v;
+        Prefs.set(PREFS.view, v);
+        render();
+    }
+
+    /** The plans' menu for one pick; picking a plan another pick shows swaps
+     *  the two, and every pick but the first may be None. */
+    function pickMenu(btn, slot) {
+        const ids = picks();
+        const now = ids[slot];
+        const choose = (id) => {
+            const next = [...ids];
+            const j = id ? next.indexOf(id) : -1;
+            if (j >= 0) next[j] = now;
+            next[slot] = id;
+            setPicks(next);
+            render();
+        };
+        const items = Store.state.tabs.map((id) => ({
             label: Store.planName(id), icon: id === now ? 'check' : 'file', chosen: id === now,
-            onSelect: () => {
-                if (side === 'a') setPair(id, id === b ? a : b);
-                else setPair(id === a ? b : a, id);
-                render();
-            },
-        })));
+            onSelect: () => choose(id),
+        }));
+        if (slot > 0) items.push('sep', { label: 'None', icon: now ? 'minus' : 'check', chosen: !now, onSelect: () => choose(null) });
+        UI.menu(btn, items);
     }
 
     root.addEventListener('click', (e) => {
+        const tab = e.target.closest('[data-tab]');
+        if (tab) { showView(tab.dataset.tab); return; }
         const open = e.target.closest('[data-open]');
         if (open) {
             Store.setWorkspace('analyze');
@@ -350,14 +406,23 @@
         if (y) { Prefs.set(PREFS.years, y.dataset.years); render(); return; }
         const act = e.target.closest('[data-act]');
         if (!act) return;
-        if (act.dataset.act === 'swap') {
-            const { a, b } = pair();
-            if (b) { setPair(b, a); render(); }
-        } else if (act.dataset.act === 'pick-a') pickMenu(act, 'a');
-        else if (act.dataset.act === 'pick-b') pickMenu(act, 'b');
+        if (act.dataset.act === 'goals') { Store.setWorkspace('goals'); return; }
+        const m = /^pick-(\d)$/.exec(act.dataset.act);
+        if (m) pickMenu(act, Number(m[1]));
     });
 
-    // Redraw the chart when its box changes size, coalesced to one per frame.
+    // Arrow keys move along the tabs, as Ant's Tabs do.
+    root.querySelector('.tabs-nav').addEventListener('keydown', (e) => {
+        if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+        e.preventDefault();
+        const i = VIEWS.findIndex(([v]) => v === view);
+        const next = VIEWS[(i + (e.key === 'ArrowRight' ? 1 : VIEWS.length - 1)) % VIEWS.length][0];
+        showView(next);
+        root.querySelector(`[data-tab="${next}"]`).focus();
+    });
+
+    // Redraw the chart when its box changes size (as Net worth's tab opens,
+    // too), coalesced to one per frame.
     let resizeQueued = false;
     new ResizeObserver(() => {
         if (resizeQueued) return;

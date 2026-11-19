@@ -7,7 +7,7 @@
 //              money goes and comes from, its outlook and its issues
 //   a link     its rule, as a sentence and as controls: from what, how much,
 //              when, and an optional window
-//   nothing    the plan: name, start, age, issues, module counts
+//   nothing    the plan: name, start, age, issues
 //
 // It shows only in the plan builder (the Plans workspace); the others have
 // the room to themselves.
@@ -244,18 +244,16 @@
 
     // ── Plan panel ─────────────────────────────────────────────────────────
 
-    const ROLE_ICON = { source: 'briefcase', account: 'piggy-bank', expense: 'shopping-bag', debt: 'cardholder', modifier: 'sliders-horizontal', group: 'folder' };
-
     function planPanel() {
         const nameB = bind('plan.name', {
-            type: 'text', className: 'insp-name',
+            type: 'text', className: 'insp-name insp-name--plan',
             get: () => plan().name,
             set: (pl, v) => { pl.name = v; },
             fallback: () => 'Untitled plan',
         });
         // The age is the person the plan is for, at its start: it dates a goal
         // that is due at an age and an income that stops at one, and labels
-        // the charts. The retirement age goal is one age that incomes may stop
+        // the charts. The retirement age is one age that incomes may stop
         // at and links may start at, so one edit moves them all.
         const settings = `<div class="insp-fields">
             ${field('Starts', 'plan.start', {
@@ -268,7 +266,7 @@
                 get: () => plan().settings.age,
                 set: (pl, v) => { pl.settings.age = v; },
             })}
-            ${field('Retirement age goal', 'plan.retireAge', {
+            ${field('Retirement age', 'plan.retireAge', {
                 type: 'number', min: P.GOAL_AGE.min, max: P.GOAL_AGE.max, suffix: 'yrs', decimals: true, optional: true,
                 get: () => plan().settings.retireAge,
                 set: (pl, v) => { pl.settings.retireAge = v; },
@@ -276,25 +274,15 @@
         </div>`;
         return `
             <div class="insp-header">
-                <span class="insp-plan-tile" aria-hidden="true">${iconSvg('file', { cls: 'insp-plan-icon' })}</span>
-                <div class="insp-titles">${nameB.html}
-                    <div class="insp-tags"><span class="tag tag--processing">Plan</span></div>
-                </div>
+                <div class="insp-titles">${nameB.html}</div>
             </div>
             ${section('Timeline', settings)}
             <div data-stats></div>`;
     }
 
     function planStats() {
-        const p = plan();
         const r = results();
-        if (!r) return '';
-        const counts = [...C.ROLE_ORDER, 'group'].map((sw) => {
-            const n = p.nodes.filter((x) => D.swatchOf(x) === sw).length;
-            return n ? `<span class="role-count" data-role="${sw}"><span class="role-tile">${iconSvg(ROLE_ICON[sw])}</span>${n} ${esc(C.SWATCHES[sw].label)}</span>` : '';
-        }).join('');
-        return issuesHtml(r.warnings)
-            + (counts ? section('Modules', `<div class="role-counts">${counts}</div>`) : '');
+        return r ? issuesHtml(r.warnings) : '';
     }
 
     // ── Node panel ─────────────────────────────────────────────────────────
@@ -709,7 +697,7 @@
      *  'Nov 2061', or 'Age 65 · Nov 2061' at the retirement age. */
     function startsLabel(p, c) {
         if (!c || (c.kind !== 'age' && c.kind !== 'retire')) return '';
-        if (c.kind === 'retire' && p.settings.retireAge == null) return 'Needs a retirement age goal (plan Timeline)';
+        if (c.kind === 'retire' && p.settings.retireAge == null) return 'Needs a retirement age (plan Timeline)';
         const ym = P.startAgeMonth(p, c);
         if (!ym) return 'Needs your age (plan Timeline)';
         return c.kind === 'retire' ? `Age ${Fmt.number(p.settings.retireAge, 1)} · ${P.ymLabel(ym)}` : P.ymLabel(ym);
@@ -813,7 +801,10 @@
         else if (key.startsWith('preset:')) html = presetPanel(key.slice(7));
         else if (key.startsWith('node:')) html = nodePanel(Store.node(key.slice(5)));
         else html = linkPanel(Store.link(key.slice(5)));
-        root.innerHTML = `<div class="insp-scroll scroll-y">${html}</div>`;
+        // The plan's panel carries a notebook as a watermark, as a module's
+        // card on the canvas carries its icon (canvas.css, .node-wm).
+        const wm = key === 'plan' ? `<div class="insp-wm" aria-hidden="true">${iconSvg('notebook')}</div>` : '';
+        root.innerHTML = `${wm}<div class="insp-scroll scroll-y">${html}</div>`;
         if (key.startsWith('preset:')) {
             for (const el of root.querySelectorAll('[data-bind]')) el.disabled = true;
         }

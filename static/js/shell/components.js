@@ -51,10 +51,12 @@
     }
 
     /** A line Progress at `fraction` (0..1). `status`: 'success' shows a tick
-     *  in place of the figure, 'exception' and 'warning' colour the bar. */
+     *  in place of the figure and 'warning' a clock (met, but late), as the
+     *  Goals stat cards do; 'exception' and 'warning' colour the bar. */
+    const PROGRESS_ICONS = { success: 'check-circle', warning: 'clock' };
     function progress(fraction, { status = 'normal', label = 'Progress', small = true } = {}) {
         const pct = Math.round(Math.min(1, Math.max(0, fraction)) * 100);
-        const text = status === 'success' ? iconSvg('check-circle') : `${pct}%`;
+        const text = PROGRESS_ICONS[status] ? iconSvg(PROGRESS_ICONS[status]) : `${pct}%`;
         return `<div class="progress progress--${status}${small ? ' progress--sm' : ''}" role="progressbar"
                 aria-label="${esc(label)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}">
             <div class="progress-track"><div class="progress-fill" style="width: ${pct}%"></div></div>

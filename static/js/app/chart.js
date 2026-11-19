@@ -4,7 +4,7 @@
 // The charts of Analyze and Compare, drawn as SVG in Ant Design's chart style:
 //
 //   area   stacked bands over time (accounts above zero, debts below) with
-//          lines on top (net worth; or Compare's two plans, with no bands)
+//          lines on top (net worth; or Compare's plans, with no bands)
 //   bars   stacked bars per period, ups above zero and downs below, with a
 //          line on top (cash flow)
 //

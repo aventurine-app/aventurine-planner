@@ -40,18 +40,18 @@
 }
 .insp-header .role-tile--lg { width: var(--insp-tile); height: var(--insp-tile); border-radius: var(--border-radius-lg); }
 .insp-header .role-tile--lg .icon { width: 28px; height: 28px; }
-/* The plan's own header: a page icon in a primary avatar. */
-.insp-plan-icon { width: 28px; height: 28px; color: var(--color-primary); }
-.insp-plan-tile {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex: none;
-    width: var(--insp-tile);
-    height: var(--insp-tile);
-    border-radius: var(--border-radius-lg);
-    background: var(--color-primary-bg);
+/* The plan's watermark: a notebook a shade off the panel, large, run off the panel's
+   bottom-right corner under its content, as a module's icon is on its canvas
+   card (canvas.css, .node-wm). */
+.insp-wm {
+    position: absolute;
+    right: -28px;
+    bottom: -36px;
+    color: var(--color-fill-tertiary);
+    pointer-events: none;
 }
+.insp-wm .icon { display: block; width: 180px; height: 180px; }
+.insp-wm + .insp-scroll { position: relative; }
 
 /* A module's identity and settings, held together at the top of the panel. */
 .insp-card { overflow: hidden; }
@@ -91,6 +91,8 @@
 .insp-name:focus { background: var(--color-bg-container); border-color: var(--color-primary); box-shadow: 0 0 0 2px var(--control-outline); }
 div.insp-name { display: flex; align-items: center; }
 div.insp-name:hover { border-color: transparent; }
+/* The plan's own header: just its name, a size up from a module's. */
+.insp-name--plan { height: 40px; font-size: var(--font-size-heading-3); }
 
 .insp-section {
     padding: var(--space-16) var(--space-20);

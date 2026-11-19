@@ -13,18 +13,22 @@
     flex-direction: column;
 }
 
-/* The tabs on the left; the Sankey's span or the table picker on the right. */
+/* The tabs on the left; the Sankey's span or the table picker on the right.
+   The tabs set the bar's height and stretch to it, so the active tab's ink
+   bar always rests on the bar's border; the tools (32px) add no padding of
+   their own, or they would make the bar taller than the tabs (46px) on
+   Sankey and Table and lift the ink bar off the line. */
 .outlook-bar {
     display: flex;
     flex-wrap: wrap;
-    align-items: center;
+    align-items: stretch;
     justify-content: space-between;
     gap: 0 var(--space-16);
     padding: 0 var(--space-24);
     border-bottom: var(--line-width) solid var(--color-border-secondary);
 }
 .outlook-bar .tabs-nav { border-bottom: 0; }
-.outlook-tools { display: flex; align-items: center; gap: var(--space-8); padding-block: var(--space-8); }
+.outlook-tools { display: flex; align-items: center; gap: var(--space-8); }
 .outlook-tools:empty { display: none; }
 .span-btn .icon { width: 14px; height: 14px; }
 .span-btn span { font-variant-numeric: tabular-nums; }
@@ -138,8 +142,10 @@
 /* ── Tables ─────────────────────────────────────────────────────────────── */
 .outlook-table-wrap {
     max-height: clamp(320px, calc(100vh - 360px), 720px);
-    border-radius: 0 0 var(--border-radius-lg) var(--border-radius-lg);
+    border-radius: 0 0 var(--card-inner-radius) var(--card-inner-radius);
 }
+/* The card's border closes the table; the last row's rule would double it. */
+.outlook-table-wrap .data-table tbody tr:last-child > * { border-bottom: 0; }
 .cell-name { display: inline-flex; align-items: center; gap: var(--space-8); }
 .year-cell { display: inline-flex; align-items: baseline; gap: var(--space-8); font-weight: var(--font-weight-strong); }
 .year-cell span { color: var(--color-text-tertiary); font-size: var(--font-size-sm); font-weight: var(--font-weight-normal); }

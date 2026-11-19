@@ -1,55 +1,50 @@
 /* ============================================================================
    compare.css — the Compare workspace (compare.js), as an Ant Design page:
-   the bar picking two plans (A in blue, B in orange) and the length they run
-   over, their net worth chart and side-by-side table, and every plan ranked.
-   The page frame is components.css's .page; the chart's marks are
-   outlook.css's.
+   the bar of four plan picks, then one card of
+   line tabs: their net worth chart, their metrics ranked, and their goals.
+   The page frame is components.css's .page; the tab bar and the
+   chart's marks are outlook.css's.
    ============================================================================ */
 
-/* ── The two plans ──────────────────────────────────────────────────────── */
+/* ── The picks ──────────────────────────────────────────────────────────── */
 .compare-pick { margin-bottom: var(--space-16); }
 .compare-pick-body {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     align-items: center;
-    gap: var(--space-8) var(--space-12);
+    gap: var(--space-8) var(--space-16);
     padding: var(--space-12) var(--space-16);
 }
-.compare-pick .badge-dot { gap: 0; }
-.compare-dot--a { --dot: var(--chart-plan-a); }
-.compare-dot--b { --dot: var(--chart-plan-b); }
-.compare-dot--a::before,
-.compare-dot--b::before { width: 8px; height: 8px; }
-.compare-over {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-8) var(--space-12);
-    margin-left: auto;
-}
-.compare-legend { padding-left: 0; }
+.compare-slot { display: flex; align-items: center; gap: var(--space-8); min-width: 0; }
+.compare-slot .plan-pick { flex: 1; width: auto; min-width: 0; }
+.plan-pick-name.is-placeholder { color: var(--color-text-tertiary); }
 
-.compare-chart-body { padding: var(--space-16) var(--space-24) var(--space-16) var(--space-8); }
-.compare-chart { height: clamp(280px, calc(100vh - 480px), 440px); }
+/* ── The card of tabs ───────────────────────────────────────────────────── */
+.compare-over { gap: var(--space-12); }
+.compare-over.is-off { visibility: hidden; }
+.compare-legend { padding-left: 52px; }
+.compare-chart { height: clamp(300px, calc(100vh - 340px), 560px); }
 
-/* The side-by-side table: plan names in the header, wrapped if long. */
-.compare-side th .badge-dot { justify-content: flex-end; white-space: normal; }
-.compare-side abbr { text-decoration: none; }
+/* The table panes close the card: they round to its inner corners (and, as
+   scroll boxes, clip the cells' backgrounds to them), and the last row drops
+   its rule so it does not double the card's bottom border. */
+.compare-pane.table-wrap { border-radius: 0 0 var(--card-inner-radius) var(--card-inner-radius); }
+.compare-pane .data-table tbody tr:last-child > * { border-bottom: 0; }
 
-/* ── All plans ──────────────────────────────────────────────────────────── */
-.compare-all { margin-top: var(--space-16); }
 .compare-col { display: inline-flex; flex-direction: column; align-items: flex-end; }
-.compare-col-note { color: var(--color-text-tertiary); font-size: var(--font-size-sm); font-weight: var(--font-weight-normal); }
+.compare-col-note { display: block; color: var(--color-text-tertiary); font-size: var(--font-size-sm); font-weight: var(--font-weight-normal); }
+.compare-measure { display: block; font-weight: var(--font-weight-medium); }
+
+/* ── Metrics ────────────────────────────────────────────────────────────── */
 
 /* --heat runs 0..1 (compare.js sets it per place): a tint of the primary
    colour, strongest on the best figure. Values keep the text colours. */
 .compare-table td.is-heat { background: color-mix(in srgb, var(--color-primary) calc(var(--heat) * 12%), var(--color-bg-container)); }
 .compare-table tbody tr:hover td.is-heat { background: color-mix(in srgb, var(--color-primary) calc(var(--heat) * 16%), var(--color-bg-container)); }
 
-.compare-plan { display: block; max-width: 280px; overflow: hidden; text-overflow: ellipsis; font-weight: var(--font-weight-strong); text-align: left; }
-.compare-span { display: block; color: var(--color-text-tertiary); font-size: var(--font-size-sm); }
+.compare-plan { max-width: 240px; font-weight: var(--font-weight-strong); text-align: right; }
 
-/* The place sits before the figure, so the figures keep one right edge. */
+/* A tag sits before the figure, so the figures keep one right edge. */
 .compare-cell { display: inline-flex; align-items: center; gap: var(--space-8); }
 .compare-value { font-weight: var(--font-weight-medium); }
 

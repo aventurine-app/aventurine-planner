@@ -175,7 +175,7 @@
     /** Why a side of a link never starts (or never stops, `verb` 'stop'), for its warning. */
     function startProblem(cond, why, plan, verb = 'start') {
         const waits = verb === 'stop' ? 'it stops at' : 'it waits for';
-        if (why === 'no-retire-age') return `${waits} retirement, but the plan has no retirement age goal set (in the plan’s Timeline)`;
+        if (why === 'no-retire-age') return `${waits} retirement, but the plan has no retirement age set (in the plan’s Timeline)`;
         if (why === 'no-age') {
             const age = cond.kind === 'retire' ? plan.settings.retireAge : cond.age;
             return `${waits} age ${Fmt.number(age, 1)}, but the plan has no age set (Your age, in the plan’s Timeline)`;
@@ -435,7 +435,7 @@
             case 'stop-no-age':
                 return { select: node, text: `${name} stops at an age, but the plan has no age set. Set Your age in the plan's Timeline.` };
             case 'stop-no-retire-age':
-                return { select: node, text: `${name} stops at retirement, but the plan has no retirement age goal set. Set it in the plan's Timeline.` };
+                return { select: node, text: `${name} stops at retirement, but the plan has no retirement age set. Set it in the plan's Timeline.` };
             case 'stopped-before':
                 return { select: node, text: `${name} stops before the plan starts, so it pays nothing.` };
             case 'runaway':

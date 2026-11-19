@@ -228,9 +228,11 @@
     --chart-growth:     var(--blue-6);
     --chart-interest:   var(--red-5);
     --chart-grid:       var(--color-split);
-    /* Compare's two plans: Ant's blue against its orange. */
+    /* Compare's four plans: Ant's blue, orange, cyan and purple. */
     --chart-plan-a: var(--blue-6);
     --chart-plan-b: var(--orange-6);
+    --chart-plan-c: var(--cyan-7);
+    --chart-plan-d: var(--purple-6);
 
     /* The Sankey: money arriving on the green ramp, money leaving on the gold
        one, both deepest first (they grade size; every band prints its own

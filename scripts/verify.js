@@ -189,7 +189,16 @@ async function main(url) {
         await js(`document.querySelector('.nav-item[data-go="${go}"]').click()`);
         check(`the navigation opens ${go}`, await until(js, showsOnly(cls)));
     }
-    check('Compare lists every plan', await until(js, `document.querySelectorAll('.compare-table tbody tr').length === 2`));
+    check('Compare lists both plans', await until(js, `document.querySelectorAll('.compare-table thead th').length === 3`));
+    check('Compare has four plan picks', await js(`document.querySelectorAll('.compare-pick .plan-pick').length === 4`));
+    check('Compare picks both plans, the rest None', await js(`[...document.querySelectorAll('.compare-pick .plan-pick-name')]
+        .map((n) => n.classList.contains('is-placeholder')).join() === 'false,false,true,true'`));
+    await js(`document.querySelector('.compare [data-tab="metrics"]').click(); true`);
+    check('Compare opens Metrics in its tab', await until(js, `!document.querySelector('.compare [data-pane="metrics"]').hidden
+        && document.querySelector('.compare [data-pane="worth"]').hidden
+        && document.querySelectorAll('.compare-table tbody tr').length >= 7`));
+    await js(`document.querySelector('.compare [data-tab="worth"]').click(); true`);
+    check('Compare draws both plans in Net worth', await until(js, `document.querySelectorAll('.compare-chart .chart-line').length === 2`));
     // Write a goal in the goal editor: net worth at least 25 times yearly expenses by age 65.
     await js(`document.querySelector('.nav-item[data-go="goals"]').click();
         document.querySelector('.goals-board [data-act="add"]').click(); true`);

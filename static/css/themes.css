@@ -139,6 +139,8 @@ html[data-theme="dark"],
     --chart-interest: var(--red-7);
     --chart-plan-a:   var(--blue-7);
     --chart-plan-b:   var(--orange-6);
+    --chart-plan-c:   var(--cyan-7);
+    --chart-plan-d:   var(--purple-7);
 
     /* The Sankey: Ant's dark green and gold ramps, deepest first. */
     --chart-inflow-1: var(--green-5);
