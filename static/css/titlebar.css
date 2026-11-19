@@ -7,10 +7,10 @@
 /* The bar is dark in both themes, so what sits on it uses light inks of its
    own rather than the theme's text colours. */
 :root {
-    --titlebar-bg: #1a1a19;
-    --titlebar-ink: rgba(255, 255, 255, 0.65);
-    --titlebar-ink-strong: rgba(255, 255, 255, 0.85);
-    --titlebar-hover: rgba(255, 255, 255, 0.12);
+    --titlebar-bg: #1c1a16;
+    --titlebar-ink: rgba(252, 248, 240, 0.65);
+    --titlebar-ink-strong: rgba(252, 248, 240, 0.85);
+    --titlebar-hover: rgba(252, 248, 240, 0.12);
     --titlebar-edge: transparent;
 }
 
@@ -54,7 +54,7 @@
 }
 /* The collapsed rail is too narrow for the name. */
 .titlebar-name {
-    color: #fff;
+    color: #fcf8f0;
     /* As tall as the 24px logo beside it. */
     font-size: 24px;
     line-height: 1;
@@ -106,7 +106,7 @@
 .titlebar-sync--synced { color: #52c41a; }
 .titlebar-sync--unsynced { color: #fa8c16; }
 .titlebar-sync--offline,
-.titlebar-sync--saving { color: rgba(255, 255, 255, 0.45); }
+.titlebar-sync--saving { color: rgba(252, 248, 240, 0.45); }
 
 /* The signed-in user, at the bar's right edge: a profile icon and the email,
    a text button on the dark bar. */
@@ -129,8 +129,8 @@
 }
 .titlebar-user .icon { width: 20px; height: 20px; flex: none; }
 .titlebar-user-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.titlebar-user:hover { background: var(--titlebar-hover); color: #fff; }
-.titlebar-user:focus-visible { outline: 4px solid rgba(255, 255, 255, 0.4); outline-offset: -2px; }
+.titlebar-user:hover { background: var(--titlebar-hover); color: #fcf8f0; }
+.titlebar-user:focus-visible { outline: 4px solid rgba(252, 248, 240, 0.4); outline-offset: -2px; }
 
 @media (prefers-reduced-motion: reduce) {
     .titlebar-lead, .titlebar-name, .titlebar-beta, .titlebar-user { transition: none; }

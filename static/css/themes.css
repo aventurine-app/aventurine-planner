@@ -4,7 +4,13 @@
    Light is the :root baseline in style.css. Dark overrides it here: Ant's dark
    palettes (presetDarkPalettes) and the map tokens its dark algorithm derives
    from the same seed. The theme lands on <html data-theme> before first paint
-   (shell/theme-init.js). */
+   (shell/theme-init.js).
+
+   The neutrals are Ant's dark greys warmed to the shared paper ramp (see the
+   website's css/warm-ramp.css): each keeps Ant's OKLCH lightness and takes
+   the ramp's chroma and hue (~80°) at that lightness. White inks and fills
+   are the paper, #fcf8f0, at Ant's alphas. The layout is lifted off pure
+   black to #080706 so it can carry the warmth. */
 
 
 /* ─── Dark ─────────────────────────────────────────────────────────────────── */
@@ -38,31 +44,31 @@ html[data-theme="dark"],
     --magenta-6: #cb2b83; --magenta-7: #e0529c; --magenta-8: #f37fb7; --magenta-9: #f8a8cc; --magenta-10: #fad2e3;
 
     /* Text and icons. Tertiary is 0.5 (Ant: 0.45) for 4.5:1 on the cards. */
-    --color-text:            rgba(255, 255, 255, 0.85);
-    --color-text-secondary:  rgba(255, 255, 255, 0.65);
-    --color-text-tertiary:   rgba(255, 255, 255, 0.5);
-    --color-text-quaternary: rgba(255, 255, 255, 0.25);
-    --color-text-disabled:   rgba(255, 255, 255, 0.25);
-    --color-icon:            rgba(255, 255, 255, 0.45);
-    --color-icon-hover:      rgba(255, 255, 255, 0.85);
+    --color-text:            rgba(252, 248, 240, 0.85);
+    --color-text-secondary:  rgba(252, 248, 240, 0.65);
+    --color-text-tertiary:   rgba(252, 248, 240, 0.5);
+    --color-text-quaternary: rgba(252, 248, 240, 0.25);
+    --color-text-disabled:   rgba(252, 248, 240, 0.25);
+    --color-icon:            rgba(252, 248, 240, 0.45);
+    --color-icon-hover:      rgba(252, 248, 240, 0.85);
 
-    --color-bg-layout:             #000000;
-    --color-bg-container:          #141414;
-    --color-bg-elevated:           #1f1f1f;
-    --color-bg-spotlight:          #424242;
+    --color-bg-layout:             #080706;
+    --color-bg-container:          #161411;
+    --color-bg-elevated:           #211f1a;
+    --color-bg-spotlight:          #46423a;
     --color-bg-mask:               rgba(0, 0, 0, 0.45);
-    --color-bg-container-disabled: rgba(255, 255, 255, 0.08);
-    --color-bg-text-hover:         rgba(255, 255, 255, 0.12);
-    --color-bg-text-active:        rgba(255, 255, 255, 0.18);
+    --color-bg-container-disabled: rgba(252, 248, 240, 0.08);
+    --color-bg-text-hover:         rgba(252, 248, 240, 0.12);
+    --color-bg-text-active:        rgba(252, 248, 240, 0.18);
 
-    --color-border:           #424242;
-    --color-border-secondary: #303030;
-    --color-split:            rgba(253, 253, 253, 0.12);
-    --color-fill:             rgba(255, 255, 255, 0.18);
-    --color-fill-secondary:   rgba(255, 255, 255, 0.12);
-    --color-fill-tertiary:    rgba(255, 255, 255, 0.08);
-    --color-fill-quaternary:  rgba(255, 255, 255, 0.04);
-    --color-fill-alter:       rgba(255, 255, 255, 0.04);
+    --color-border:           #46423a;
+    --color-border-secondary: #33302a;
+    --color-split:            rgba(252, 248, 240, 0.12);
+    --color-fill:             rgba(252, 248, 240, 0.18);
+    --color-fill-secondary:   rgba(252, 248, 240, 0.12);
+    --color-fill-tertiary:    rgba(252, 248, 240, 0.08);
+    --color-fill-quaternary:  rgba(252, 248, 240, 0.04);
+    --color-fill-alter:       rgba(252, 248, 240, 0.04);
 
     /* The primary and status tokens re-resolve against the dark palettes
        above; only the steps that differ from light are restated. */
@@ -80,14 +86,14 @@ html[data-theme="dark"],
     --color-error-text:     var(--red-7);
     --color-info-text:      var(--blue-7);
 
-    --control-item-bg-hover:  rgba(255, 255, 255, 0.08);
+    --control-item-bg-hover:  rgba(252, 248, 240, 0.08);
     --control-outline:        rgba(0, 60, 180, 0.15);
     --color-error-outline:    rgba(238, 38, 56, 0.11);
     --color-warning-outline:  rgba(173, 107, 0, 0.15);
     --button-primary-shadow:  0 2px 0 rgba(0, 60, 180, 0.15);
     --button-danger-shadow:   0 2px 0 rgba(238, 38, 56, 0.11);
 
-    --canvas-dot: rgba(255, 255, 255, 0.12);
+    --canvas-dot: rgba(252, 248, 240, 0.12);
 
     /* Roles re-picked from Ant's dark palettes against the dark card (style.css
        §3): cyan-7, blue-6, gold-6, red-6, purple-8. (Since moved: Income to green-7, 7.9:1, and Modifiers
@@ -101,10 +107,10 @@ html[data-theme="dark"],
     --role-expense:  var(--gold-6);
     --role-debt:     var(--red-6);
     --role-modifier: var(--cyan-7);
-    --role-group:    #a6a6a6;
-    --role-none:     #7a7a7a;
+    --role-group:    #aca698;
+    --role-none:     #7f7a6e;
 
-    --medal-silver: #bfbfbf;
+    --medal-silver: #c5bfb1;
     --medal-bronze: var(--orange-6);
 
     --link-line: var(--blue-7);

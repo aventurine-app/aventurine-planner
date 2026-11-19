@@ -66,34 +66,34 @@
     color-scheme: light;
 
     /* Text and icons. */
-    --color-text:            #373634;
-    --color-text-secondary:  #51504d;
-    --color-text-tertiary:   #6c6a66;
-    --color-text-quaternary: rgba(26, 26, 25, 0.25);
-    --color-text-disabled:   rgba(26, 26, 25, 0.25);
-    --color-text-light-solid: #f3f2f2;
-    --color-icon:            rgba(26, 26, 25, 0.45);
-    --color-icon-hover:      rgba(26, 26, 25, 0.88);
+    --color-text:            #3a3630;
+    --color-text-secondary:  #544f47;
+    --color-text-tertiary:   #6f695f;
+    --color-text-quaternary: rgba(28, 26, 22, 0.25);
+    --color-text-disabled:   rgba(28, 26, 22, 0.25);
+    --color-text-light-solid: #f5f2ea;
+    --color-icon:            rgba(28, 26, 22, 0.45);
+    --color-icon-hover:      rgba(28, 26, 22, 0.88);
 
     /* Surfaces: the page (layout), cards (container), pop-ups (elevated). */
-    --color-bg-layout:             #f3f2f2;
-    --color-bg-container:          #fafaf9;
-    --color-bg-elevated:           #fcfcfb;
-    --color-bg-spotlight:          rgba(26, 26, 25, 0.85);
-    --color-bg-mask:               rgba(26, 26, 25, 0.45);
-    --color-bg-container-disabled: rgba(26, 26, 25, 0.04);
-    --color-bg-text-hover:         rgba(26, 26, 25, 0.06);
-    --color-bg-text-active:        rgba(26, 26, 25, 0.15);
+    --color-bg-layout:             #f5f2ea;
+    --color-bg-container:          #fcfaf4;
+    --color-bg-elevated:           #fefcf7;
+    --color-bg-spotlight:          rgba(28, 26, 22, 0.85);
+    --color-bg-mask:               rgba(28, 26, 22, 0.45);
+    --color-bg-container-disabled: rgba(28, 26, 22, 0.04);
+    --color-bg-text-hover:         rgba(28, 26, 22, 0.06);
+    --color-bg-text-active:        rgba(28, 26, 22, 0.15);
 
     /* Lines and fills. */
-    --color-border:           #d0cfcd;
-    --color-border-secondary: #e6e6e5;
-    --color-split:            rgba(26, 26, 25, 0.06);
-    --color-fill:             rgba(26, 26, 25, 0.15);
-    --color-fill-secondary:   rgba(26, 26, 25, 0.06);
-    --color-fill-tertiary:    rgba(26, 26, 25, 0.04);
-    --color-fill-quaternary:  rgba(26, 26, 25, 0.02);
-    --color-fill-alter:       rgba(26, 26, 25, 0.02);
+    --color-border:           #d4cec1;
+    --color-border-secondary: #eae6da;
+    --color-split:            rgba(28, 26, 22, 0.06);
+    --color-fill:             rgba(28, 26, 22, 0.15);
+    --color-fill-secondary:   rgba(28, 26, 22, 0.06);
+    --color-fill-tertiary:    rgba(28, 26, 22, 0.04);
+    --color-fill-quaternary:  rgba(28, 26, 22, 0.02);
+    --color-fill-alter:       rgba(28, 26, 22, 0.02);
 
     /* The accent: Ant's blue, and its states. Text in it takes a step darker
        (blue-7), which clears 4.5:1 on white and on its own tint. */
@@ -147,7 +147,7 @@
 
     /* The canvas: the page grey with a dot grid. */
     --canvas-bg:  var(--color-bg-layout);
-    --canvas-dot: rgba(26, 26, 25, 0.14);
+    --canvas-dot: rgba(28, 26, 22, 0.14);
 }
 
 

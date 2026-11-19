@@ -116,7 +116,7 @@
     height: 35%;
     background: var(--color-bg-layout);
 }
-.settings-theme-swatch--system { background: linear-gradient(105deg, #f3f2f2 0 50%, #141414 50% 100%); }
+.settings-theme-swatch--system { background: linear-gradient(105deg, #f5f2ea 0 50%, #161411 50% 100%); }
 .settings-theme-swatch--system::before { display: none; }
 .theme-label {
     padding: 4px 0 6px;

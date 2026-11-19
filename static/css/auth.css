@@ -25,37 +25,37 @@
    page, so the buttons, field focus ring and links below follow without
    changes; the app's own pages keep the blue. */
 .auth-page {
-    --color-primary:              #373634;
-    --color-primary-hover:        #51504d;
-    --color-primary-active:       #1a1a19;
-    --color-primary-bg:           #f3f2f2;
-    --color-primary-bg-hover:     #e6e6e5;
-    --color-primary-border:       #d0cfcd;
-    --color-primary-border-hover: #b7b6b3;
-    --color-primary-text:         #373634;
-    --color-link:                 #373634;
-    --color-link-hover:           #51504d;
-    --color-link-active:          #1a1a19;
-    --control-outline:            rgba(55, 54, 52, 0.1);
-    --button-primary-shadow:      0 2px 0 rgba(55, 54, 52, 0.1);
+    --color-primary:              #3a3630;
+    --color-primary-hover:        #544f47;
+    --color-primary-active:       #1c1a16;
+    --color-primary-bg:           #f5f2ea;
+    --color-primary-bg-hover:     #eae6da;
+    --color-primary-border:       #d4cec1;
+    --color-primary-border-hover: #bcb6a8;
+    --color-primary-text:         #3a3630;
+    --color-link:                 #3a3630;
+    --color-link-hover:           #544f47;
+    --color-link-active:          #1c1a16;
+    --control-outline:            rgba(58, 54, 48, 0.1);
+    --button-primary-shadow:      0 2px 0 rgba(58, 54, 48, 0.1);
 }
 /* On the dark card charcoal would vanish, so the accent takes the ramp's light
    end and the primary button's label turns to ink. */
 html[data-theme="dark"] .auth-page {
-    --color-primary:              #d0cfcd;
-    --color-primary-hover:        #e6e6e5;
-    --color-primary-active:       #b7b6b3;
-    --color-primary-bg:           #373634;
-    --color-primary-bg-hover:     #51504d;
-    --color-primary-border:       #51504d;
-    --color-primary-border-hover: #6c6a66;
-    --color-primary-text:         #d0cfcd;
-    --color-link:                 #d0cfcd;
-    --color-link-hover:           #e6e6e5;
-    --color-link-active:          #b7b6b3;
-    --color-text-light-solid:     #1a1a19;
-    --control-outline:            rgba(208, 207, 205, 0.15);
-    --button-primary-shadow:      0 2px 0 rgba(208, 207, 205, 0.15);
+    --color-primary:              #d4cec1;
+    --color-primary-hover:        #eae6da;
+    --color-primary-active:       #bcb6a8;
+    --color-primary-bg:           #3a3630;
+    --color-primary-bg-hover:     #544f47;
+    --color-primary-border:       #544f47;
+    --color-primary-border-hover: #6f695f;
+    --color-primary-text:         #d4cec1;
+    --color-link:                 #d4cec1;
+    --color-link-hover:           #eae6da;
+    --color-link-active:          #bcb6a8;
+    --color-text-light-solid:     #1c1a16;
+    --control-outline:            rgba(212, 206, 193, 0.15);
+    --button-primary-shadow:      0 2px 0 rgba(212, 206, 193, 0.15);
 }
 .auth-page .dot-wave {
     position: absolute;

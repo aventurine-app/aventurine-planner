@@ -311,8 +311,8 @@ button.alert:focus-visible { outline: 4px solid var(--color-primary-border); out
 .tab:focus-visible { outline: 4px solid var(--color-primary-border); outline-offset: -4px; border-radius: var(--border-radius-sm); }
 
 /* ─── Table ─────────────────────────────────────────────────────────────── */
-:root { --table-header-bg: #f3f2f2; --table-row-hover-bg: #f3f2f2; --table-sort-bg: #f3f2f2; }
-html[data-theme="dark"] { --table-header-bg: #1d1d1d; --table-row-hover-bg: #262626; --table-sort-bg: #262626; }
+:root { --table-header-bg: #f5f2ea; --table-row-hover-bg: #f5f2ea; --table-sort-bg: #f5f2ea; }
+html[data-theme="dark"] { --table-header-bg: #1f1d19; --table-row-hover-bg: #292621; --table-sort-bg: #292621; }
 
 .table-wrap { width: 100%; overflow: auto; }
 .data-table {
