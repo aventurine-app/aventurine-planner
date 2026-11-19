@@ -7,10 +7,10 @@
 //   - there is no editing-tab lock: the sandbox keeps nothing on the device
 //     that a second tab could overwrite, and it must not hold up (or be held
 //     up by) the full app open in another tab;
-//   - the workspace holds one plan (PrismDemo.LIMITS.plans);
-//   - importing a plan file is refused before the file picker opens, because
-//     it would add a second plan. Exporting works, so a visitor can take
-//     their plan into the full app.
+//   - the workspace holds two plans (PrismDemo.LIMITS.plans);
+//   - importing a plan file is refused before the file picker opens: plan
+//     files belong to the full app. Exporting works, so a visitor can take
+//     their plans into the full app.
 //
 // Until the workspace has loaded, requests wait. PrismSandbox.reset forgets
 // the sandbox's data, for the "Reset sandbox" button (demo/sandbox.js).
@@ -23,7 +23,7 @@
     const storage = createSandboxStorage();
     const files = {
         save: fileDialogs.save,
-        open: async () => { throw new ApiError('the sandbox holds one plan', 409); },
+        open: async () => { throw new ApiError('the demo cannot open plan files', 409); },
     };
 
     let backend = null;

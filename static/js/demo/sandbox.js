@@ -15,6 +15,8 @@
 
 (function () {
     const { LIMITS, UPGRADE_URL } = window.PrismDemo;
+    /** "2 plans", "1 goal": a limit in words. */
+    const count = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
     const bar = document.querySelector('.titlebar');
     const prefs = document.getElementById('prefs');
@@ -77,7 +79,7 @@
         <div class="settings-card">
             <div class="settings-row settings-row--stack">
                 <div class="settings-row-name">You are in the sandbox</div>
-                <div class="settings-row-desc">It is the whole of Aventurine Planner with room for ${LIMITS.plans} plan, ${LIMITS.modules} modules and ${LIMITS.goals} goal. Your work stays in this tab and is never sent anywhere. Close the tab and it is gone, so export your plan if you want to keep it.</div>
+                <div class="settings-row-desc">It is the whole of Aventurine Planner with room for ${count(LIMITS.plans, 'plan')}, ${count(LIMITS.modules, 'module')} and ${count(LIMITS.goals, 'goal')}. Your work stays in this tab and is never sent anywhere. Close the tab and it is gone, so export your plans if you want to keep them.</div>
             </div>
             <div class="settings-row">
                 <div class="settings-row-label">
@@ -91,7 +93,7 @@
             <div class="settings-row">
                 <div class="settings-row-label">
                     <div class="settings-row-name">Reset Sandbox</div>
-                    <div class="settings-row-desc">Clear the plan and goal and start again.</div>
+                    <div class="settings-row-desc">Clear the plans and goal and start again.</div>
                 </div>
                 <div class="settings-actions">
                     <button class="button-secondary" type="button" data-sandbox-reset>Reset</button>

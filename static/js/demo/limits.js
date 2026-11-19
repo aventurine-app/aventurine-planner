@@ -15,7 +15,7 @@
 (function () {
     const P = window.CitrinePlan;
 
-    const LIMITS = Object.freeze({ plans: 1, modules: 7, goals: 1 });
+    const LIMITS = Object.freeze({ plans: 2, modules: 7, goals: 1 });
     const UPGRADE_URL = 'https://aventurine-app.com/#pricing';
     // What a new plan is called here (the app's own default is "Untitled plan").
     const PLAN_NAME = 'Demo Plan';

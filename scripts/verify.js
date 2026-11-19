@@ -73,7 +73,7 @@ async function sandbox(url, appTab) {
     const { js } = box;
     check('the sandbox opens while another tab is editing', await until(js, appReady));
     check('it is the sandbox, with its three limits',
-        await js('!!window.PrismDemo && CitrinePlan.LIMITS.nodes === 7 && CitrinePlan.LIMITS.goals === 1 && PrismDemo.LIMITS.plans === 1'));
+        await js('!!window.PrismDemo && CitrinePlan.LIMITS.nodes === 7 && CitrinePlan.LIMITS.goals === 1 && PrismDemo.LIMITS.plans === 2'));
     check('it starts with one blank plan', await js('Store.state.tabs.length === 1 && Store.state.plan.nodes.length === 0'));
     check('the plan is called Demo Plan and the bar says Demo',
         await js(`Store.state.plan.name === 'Demo Plan' && document.querySelector('.titlebar-name').textContent === 'Aventurine Demo'`));
@@ -93,11 +93,17 @@ async function sandbox(url, appTab) {
         await js('Store.duplicateNode(Store.state.plan.nodes[0].id) === null && Store.state.plan.nodes.length === 7'));
     check('the meter reaches 7/7', await until(js, `document.querySelector('[data-cap="modules"]').dataset.state === 'full'`));
 
-    // Plans: only the one. Import is refused before any file picker opens.
+    // Plans: two. Import is refused before any file picker opens.
     await js('Store.newPlan()');
-    check('a second plan is refused', await until(js, `document.querySelector('.toast span').textContent === 'You can have at most 1 plan.'`) && await js('Store.state.tabs.length === 1'));
+    check('a second plan is allowed', await until(js, 'Store.state.tabs.length === 2'));
+    check('the meter reaches 2/2 plans', await until(js, `document.querySelector('[data-cap="plans"]').dataset.state === 'full'`));
+    await js('Store.newPlan()');
+    check('a third plan is refused', await until(js, `document.querySelector('.toast span').textContent === 'You can have at most 2 plans.'`) && await js('Store.state.tabs.length === 2'));
     await js('Store.importPlan()');
-    check('importing a plan is refused', await until(js, `document.querySelector('.toast span').textContent === 'Not imported: the sandbox holds one plan.'`));
+    check('importing a plan is refused', await until(js, `document.querySelector('.toast span').textContent === 'Not imported: the demo cannot open plan files.'`));
+    // Back to the first plan, the one with seven modules.
+    await js('Store.openPlan(Store.state.tabs[0])');
+    check('the first plan opens again', await until(js, 'Store.state.plan.nodes.length === 7'));
 
     // Goals: only the one.
     check('one goal is allowed', await js('Store.addGoal({ name: "First" }) !== null && Store.state.goals.length === 1'));

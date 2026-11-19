@@ -1,7 +1,7 @@
 'use strict';
 
 // ─── storage.js (free sandbox) ──────────────────────────────────────────────
-// Where the sandbox keeps its one plan and goal. It has the same two methods
+// Where the sandbox keeps its plans and goal. It has the same two methods
 // as web/storage.js (`load` and `write`), so workspace.js cannot tell them
 // apart, but it is meant to be thrown away:
 //

@@ -1,7 +1,7 @@
 'use strict';
 
 // The free sandbox: where it keeps its plan, and that its limits hold through
-// the same backend the full app uses (one plan, seven modules, one goal).
+// the same backend the full app uses (two plans, seven modules, one goal).
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -95,11 +95,11 @@ async function sandbox() {
     const limits = { nodes: Plan.LIMITS.nodes, goals: Plan.LIMITS.goals };
     Plan.LIMITS.nodes = 7;
     Plan.LIMITS.goals = 1;
-    const workspace = createWorkspace({ storage: createSandboxStorage({ session: fakeSession(), logger: silent }), logger: silent, maxPlans: 1 });
+    const workspace = createWorkspace({ storage: createSandboxStorage({ session: fakeSession(), logger: silent }), logger: silent, maxPlans: 2 });
     await workspace.init();
     const files = {
         save: async () => true,
-        open: async () => { throw new ApiError('the sandbox holds one plan', 409); },
+        open: async () => { throw new ApiError('the demo cannot open plan files', 409); },
     };
     return {
         backend: createBackend({ workspace, files, logger: silent }),
@@ -113,13 +113,14 @@ function planWith(count) {
     return p;
 }
 
-test('the sandbox holds one plan', async (t) => {
+test('the sandbox holds two plans', async (t) => {
     const { backend, restore } = await sandbox();
     t.after(restore);
     assert.equal((await backend.dispatch('POST', '/api/plans', { plan: planWith(0) })).status, 200);
-    const second = await backend.dispatch('POST', '/api/plans', { plan: planWith(0) });
-    assert.equal(second.status, 409);
-    assert.equal(second.body.error, 'at most 1 plan');
+    assert.equal((await backend.dispatch('POST', '/api/plans', { plan: planWith(0) })).status, 200);
+    const third = await backend.dispatch('POST', '/api/plans', { plan: planWith(0) });
+    assert.equal(third.status, 409);
+    assert.equal(third.body.error, 'at most 2 plans');
 });
 
 test('a plan may hold seven modules and no more', async (t) => {
@@ -153,7 +154,7 @@ test('importing a plan file is refused before any file picker opens', async (t) 
     t.after(restore);
     const r = await backend.dispatch('POST', '/api/plans/import');
     assert.equal(r.status, 409);
-    assert.equal(r.body.error, 'the sandbox holds one plan');
+    assert.equal(r.body.error, 'the demo cannot open plan files');
 });
 
 test('deleting the only plan leaves room for a new one', async (t) => {

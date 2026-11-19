@@ -143,10 +143,10 @@ CSV and a CSV per plan) and a report of every plan.
 ## The free sandbox
 
 `/demo` is the real app with a different place to keep plans, for anyone to try
-without signing in: one plan, seven modules, one goal. Nothing is saved on the
-device: the plan lives in memory, mirrored to the tab's `sessionStorage` so a
-reload keeps it, and Preferences → Free Demo can reset it. Export works, so a
-visitor can take their plan into the full app; import does not.
+without signing in: two plans, seven modules, one goal. Nothing is saved on the
+device: the plans live in memory, mirrored to the tab's `sessionStorage` so a
+reload keeps them, and Preferences → Free Demo can reset it. Export works, so a
+visitor can take their plans into the full app; import does not.
 
 It is derived, not forked. `assembleDemoPage` (`scripts/assemble.js`) takes the
 app's page and swaps a few scripts for those in `static/js/demo/`; the build

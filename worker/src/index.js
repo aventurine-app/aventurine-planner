@@ -8,7 +8,7 @@
 //   /api/vault, /api/vault/* the user's encrypted plans          vault.js
 //   /api/privacy/*          see or delete an address's data       privacy.js
 //   /auth/*, css, fonts…    public: the sign-in pages and the look
-//   /demo, /demo/js/*       public: the free sandbox (one plan, seven modules,
+//   /demo, /demo/js/*       public: the free sandbox (two plans, seven modules,
 //                           one goal) and the scripts it runs
 //   /export                 public page: a lapsed subscriber opens their
 //                           encrypted plans and downloads them (the vault

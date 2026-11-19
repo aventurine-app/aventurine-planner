@@ -108,7 +108,7 @@ const unversioned = (urlPath) => urlPath.replace(/\?v=[0-9a-f]+$/, '');
 // and the calls behind it.
 const DEMO_DROPPED = new Set([
     'web/session.js', 'web/json-client.js', 'web/account-api.js', 'shell/account.js',
-    // Encrypted sync: the sandbox keeps its one plan in memory and has no account.
+    // Encrypted sync: the sandbox keeps its plans in memory and has no account.
     'web/vault-crypto.js', 'web/vault-api.js', 'web/vault-keys.js', 'web/vault-session.js', 'web/sync.js',
     'shell/vault-gate.js',
 ]);
