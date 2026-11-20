@@ -26,20 +26,20 @@
     color: var(--titlebar-ink);
     user-select: none;
 }
-/* As wide as the navigation below. */
+/* As wide as the open navigation below. It stays this width when the nav
+   collapses to the rail, so the name never moves or fades. */
 .titlebar-lead {
     display: flex;
     align-items: center;
     gap: var(--space-12);
-    width: var(--sidebar-width);
+    width: var(--sidebar-open-width);
     flex-shrink: 0;
     padding-left: var(--space-20);
     overflow: hidden;
     white-space: nowrap;
-    transition: width var(--motion-duration-mid) var(--motion-ease-in-out);
 }
 /* The company logo. At 24px with the lead's 20px inset it sits centred over
-   the collapsed 64px rail, so it stays when the name fades. */
+   the collapsed 64px rail and over the nav's icons. */
 .titlebar-logo {
     display: block;
     flex: none;
@@ -52,17 +52,13 @@
     align-items: flex-start;
     gap: var(--space-4);
 }
-/* The collapsed rail is too narrow for the name. */
 .titlebar-name {
     color: #fcf8f0;
     /* As tall as the 24px logo beside it. */
     font-size: 24px;
     line-height: 1;
     font-weight: var(--font-weight-strong);
-    transition: opacity var(--motion-duration-mid);
 }
-:root.has-rail .titlebar-name,
-:root.has-rail .titlebar-beta { opacity: 0; }
 
 /* Supertext on the name: small, the bar's strong ink, a little tracked. */
 .titlebar-beta {
@@ -73,7 +69,6 @@
     font-weight: var(--font-weight-strong);
     letter-spacing: 0.04em;
     vertical-align: baseline;
-    transition: opacity var(--motion-duration-mid);
 }
 
 .titlebar-drag {
@@ -133,5 +128,5 @@
 .titlebar-user:focus-visible { outline: 4px solid rgba(252, 248, 240, 0.4); outline-offset: -2px; }
 
 @media (prefers-reduced-motion: reduce) {
-    .titlebar-lead, .titlebar-name, .titlebar-beta, .titlebar-user { transition: none; }
+    .titlebar-user { transition: none; }
 }

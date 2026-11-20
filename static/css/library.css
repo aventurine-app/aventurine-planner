@@ -39,7 +39,7 @@
 }
 .lib-group-items { display: flex; gap: 6px; }
 
-/* A tile: a 32px button tinted in its role's colour, edged a step stronger. */
+/* A tile: a 32px button tinted in its role's colour, with no edge. */
 .lib-tile {
     display: grid;
     place-items: center;
@@ -56,14 +56,10 @@
     height: 100%;
     border-radius: var(--border-radius);
     background: color-mix(in srgb, var(--tile) 10%, var(--color-bg-container));
-    box-shadow: inset 0 0 0 var(--line-width) color-mix(in srgb, var(--tile) 30%, var(--color-bg-container));
     transition: background-color var(--motion-duration-mid), box-shadow var(--motion-duration-mid);
 }
 .lib-tile .role-tile .icon { width: 18px; height: 18px; }
-.lib-tile:hover .role-tile {
-    background: color-mix(in srgb, var(--tile) 18%, var(--color-bg-container));
-    box-shadow: inset 0 0 0 var(--line-width) color-mix(in srgb, var(--tile) 60%, var(--color-bg-container));
-}
+.lib-tile:hover .role-tile { background: color-mix(in srgb, var(--tile) 18%, var(--color-bg-container)); }
 .lib-tile:active { cursor: grabbing; }
 .lib-tile:active .role-tile { background: color-mix(in srgb, var(--tile) 26%, var(--color-bg-container)); }
 /* The module previewed in the inspector. */

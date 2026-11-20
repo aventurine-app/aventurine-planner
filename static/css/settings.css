@@ -12,6 +12,9 @@
 /* Ant's line tabs. */
 .settings-tabs {
     display: flex;
+    /* Its overflow lets it shrink as a flex item; keep it whole and let the
+       body scroll when a panel (Storage) is taller than the modal. */
+    flex-shrink: 0;
     gap: var(--space-32);
     margin: 0 var(--space-24);
     border-bottom: var(--line-width) solid var(--color-border-secondary);

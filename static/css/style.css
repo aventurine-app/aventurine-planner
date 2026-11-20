@@ -33,6 +33,10 @@
 .settings-theme-swatch[data-theme="light"] {
     --blue-1: #e6f4ff;   --blue-2: #bae0ff;   --blue-3: #91caff;   --blue-4: #69b1ff;   --blue-5: #4096ff;
     --blue-6: #1677ff;   --blue-7: #0958d9;   --blue-8: #003eb3;   --blue-9: #002c8c;   --blue-10: #001d66;
+    /* Charcoal: the accent. Not an Ant preset; the warm neutral ramp (hue ~80°)
+       laid out in Ant's ten steps, 6 the solid, 1-2 the tints. */
+    --charcoal-1: #eae6da; --charcoal-2: #e0dbcd; --charcoal-3: #c9c2b3; --charcoal-4: #a39c8e; --charcoal-5: #6f695f;
+    --charcoal-6: #3a3630; --charcoal-7: #24211d; --charcoal-8: #1a1815; --charcoal-9: #12110f; --charcoal-10: #0b0a09;
 
     --cyan-1: #e6fffb;   --cyan-2: #b5f5ec;   --cyan-3: #87e8de;   --cyan-4: #5cdbd3;   --cyan-5: #36cfc9;
     --cyan-6: #13c2c2;   --cyan-7: #08979c;   --cyan-8: #006d75;   --cyan-9: #00474f;   --cyan-10: #002329;
@@ -95,19 +99,19 @@
     --color-fill-quaternary:  rgba(28, 26, 22, 0.02);
     --color-fill-alter:       rgba(28, 26, 22, 0.02);
 
-    /* The accent: Ant's blue, and its states. Text in it takes a step darker
-       (blue-7), which clears 4.5:1 on white and on its own tint. */
-    --color-primary:              var(--blue-6);
-    --color-primary-hover:        var(--blue-5);
-    --color-primary-active:       var(--blue-7);
-    --color-primary-bg:           var(--blue-1);
-    --color-primary-bg-hover:     var(--blue-2);
-    --color-primary-border:       var(--blue-3);
-    --color-primary-border-hover: var(--blue-4);
-    --color-primary-text:         var(--blue-7);
-    --color-link:                 var(--blue-6);
-    --color-link-hover:           var(--blue-4);
-    --color-link-active:          var(--blue-7);
+    /* The accent: warm charcoal, and its states. Text in it is the body
+       text's charcoal (charcoal-6), well over 4.5:1 on the paper and its tint. */
+    --color-primary:              var(--charcoal-6);
+    --color-primary-hover:        var(--charcoal-5);
+    --color-primary-active:       var(--charcoal-7);
+    --color-primary-bg:           var(--charcoal-1);
+    --color-primary-bg-hover:     var(--charcoal-2);
+    --color-primary-border:       var(--charcoal-3);
+    --color-primary-border-hover: var(--charcoal-4);
+    --color-primary-text:         var(--charcoal-6);
+    --color-link:                 var(--charcoal-6);
+    --color-link-hover:           var(--charcoal-5);
+    --color-link-active:          var(--charcoal-7);
 
     /* Status colours: the fill (icons, bars, dots), its tint, its border, and
        the darker step for text. */
@@ -134,15 +138,15 @@
     /* Controls: list rows under the pointer and chosen, and the soft ring a
        focused field wears. */
     --control-item-bg-hover:        rgba(0, 0, 0, 0.04);
-    --control-item-bg-active:       var(--blue-1);
-    --control-item-bg-active-hover: var(--blue-2);
-    --control-outline:              rgba(5, 145, 255, 0.1);
+    --control-item-bg-active:       var(--color-primary-bg);
+    --control-item-bg-active-hover: var(--color-primary-bg-hover);
+    --control-outline:              rgba(58, 54, 48, 0.1);
     --color-error-outline:          rgba(255, 38, 5, 0.06);
     --color-warning-outline:        rgba(255, 215, 5, 0.1);
 
     /* Buttons' own drop shadows. */
     --button-shadow:         0 2px 0 rgba(0, 0, 0, 0.02);
-    --button-primary-shadow: 0 2px 0 rgba(5, 145, 255, 0.1);
+    --button-primary-shadow: 0 2px 0 rgba(28, 26, 22, 0.06);
     --button-danger-shadow:  0 2px 0 rgba(255, 38, 5, 0.06);
 
     /* The canvas: the page grey with a dot grid. */
@@ -321,7 +325,10 @@
     --motion-ease-out:      cubic-bezier(0.215, 0.61, 0.355, 1);
 
     --titlebar-height: 48px;
-    --sidebar-width:   224px;
+    /* The open navigation's width. --sidebar-width is the nav's current width
+       (nav.css narrows it to the rail); the title bar keeps this one. */
+    --sidebar-open-width: 224px;
+    --sidebar-width:   var(--sidebar-open-width);
     --inspector-width: 320px;
 }
 

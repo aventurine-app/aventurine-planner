@@ -35,7 +35,10 @@
     overflow-x: hidden;
 }
 
-/* A menu item: an icon and its name, 40px, inset 4px with an 8px radius. */
+/* A menu item: an icon and its name, 40px, inset 4px with an 8px radius.
+   The 20px left padding puts the icon at the centre of the 64px rail, so it
+   is the same open or collapsed and the icons hold still while the pane
+   animates between the two. */
 .nav-item {
     position: relative;
     display: flex;
@@ -45,7 +48,7 @@
     min-width: 0;
     height: 40px;
     margin: var(--space-4);
-    padding: 0 var(--space-16) 0 var(--space-24);
+    padding: 0 var(--space-16) 0 var(--space-20);
     border: 0;
     border-radius: var(--border-radius-lg);
     background: transparent;
@@ -53,7 +56,7 @@
     font-size: var(--font-size);
     text-align: left;
     cursor: pointer;
-    transition: background-color var(--motion-duration-mid), color var(--motion-duration-mid), padding var(--motion-duration-mid);
+    transition: background-color var(--motion-duration-mid), color var(--motion-duration-mid);
 }
 .nav-item .icon { width: 16px; height: 16px; flex: none; }
 .nav-item:hover { background: var(--color-bg-text-hover); }
@@ -172,7 +175,6 @@
 .nav.is-rail .nav-label,
 .nav.is-rail .nav-caret,
 .nav.is-rail .nav-plans-panel { display: none; }
-.nav.is-rail .nav-item { padding: 0; justify-content: center; }
 /* In the rail, Plans stands for the builder it opens. */
 .nav.is-rail .nav-item.is-current { background: var(--control-item-bg-active); color: var(--color-primary-text); }
 
